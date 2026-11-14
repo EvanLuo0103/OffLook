@@ -12,6 +12,11 @@ Click "Choose file" in the main window, or run:
   offlook preview ".\\README.md"
 Select one file in File Explorer or on the desktop, then press the current shortcut to preview it.
 
+Searching files
+In "Search files", choose a local folder and optionally enter part of a filename. Choose "All types", a content category, "Documents (.doc/.xlsx)", or "Other / unknown", then click "Search".
+The search includes subfolders but does not follow links or network folders. Double-click a result to preview it. Press Ctrl+F to focus and select the filename search box.
+Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
+
 Current shortcut
 {hotkey}
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.
@@ -35,7 +40,7 @@ Closing the main window hides it to the system tray, where you can restore it or
 File limits and offline operation
 OffLook reads only local files. It makes no network connections, executes no file content, and uses no Windows or third-party thumbnail providers.
 Safety limits apply to file size, text length, image pixels, and preview time. Unknown formats, files over these limits, and empty files show a file information card, not a hex dump.
-Content previews support images, PDFs, text, and CSV. The information card retains the full path, file attributes, and human-readable size.
+Content previews support images, PDFs, text, Markdown, code, and CSV. Word, Excel, PowerPoint, OpenDocument, unknown, and unsupported files show the information card with the full path, file attributes, and human-readable size.
 """
 
 

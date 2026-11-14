@@ -73,6 +73,7 @@ class PreviewApplication:
             self.tray.start()
         self.root.protocol('WM_DELETE_WINDOW', self._hide if resident else self.shutdown)
         self.root.bind('<F1>', self._help_key)
+        self.root.bind('<Control-f>', self._focus_search)
         self.root.bind('<Configure>', self._main_configure)
         if not resident or background:
             self.root.withdraw()
@@ -113,7 +114,8 @@ class PreviewApplication:
         filter_row = ttk.Frame(search, style='Card.TFrame')
         filter_row.pack(fill='x', pady=4)
         self.search_name = tk.StringVar()
-        ttk.Entry(filter_row, textvariable=self.search_name).pack(side='left', fill='x', expand=True)
+        self.search_entry = ttk.Entry(filter_row, textvariable=self.search_name)
+        self.search_entry.pack(side='left', fill='x', expand=True)
         self.search_kind = tk.StringVar(value='All types')
         ttk.Combobox(filter_row, textvariable=self.search_kind, state='readonly', width=18,
                      values=('All types', 'Text', 'Markdown', 'Code', 'CSV', 'Images', 'PDF',
@@ -196,6 +198,12 @@ class PreviewApplication:
         if folder:
             self.search_folder.set(folder)
             self.search_status.set('Ready to search.')
+
+    def _focus_search(self, _event=None):
+        """Focus and select the filename filter for the main-window search shortcut."""
+        self.search_entry.focus_set()
+        self.search_entry.selection_range(0, 'end')
+        return 'break'
 
     def _search(self):
         """Run recursive search off the Tk thread and display bounded results."""
