@@ -1,0 +1,4 @@
+Pillow==13.0.0
+pypdfium2==5.15.2
+chardet==7.7.0
+pywin32==312; sys_platform == "win32"
