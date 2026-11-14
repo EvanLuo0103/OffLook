@@ -37,6 +37,7 @@ class PreviewApplication:
         self.root.minsize(round(640*self._scale), round(520*self._scale))
         self.runner = WorkerRunner(renderers)
         self.listener = self._pending_listener = self.search_listener = None
+        self._search_hotkey_start_pending = resident
         self._pending_config = None
         self._pending_persist = False
         self._retiring_listeners = []
@@ -81,7 +82,6 @@ class PreviewApplication:
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
             self._configure_hotkey()
-            self.root.after(500, self._start_search_hotkey)
         self.root.after(25, self._poll)
         self.root.after_idle(self._clamp_main)
 
@@ -338,8 +338,9 @@ class PreviewApplication:
 
     def _start_search_hotkey(self):
         """Register the fixed Explorer folder-search shortcut."""
-        if self.search_listener is not None or self.closing:
+        if self.search_listener is not None or self.closing or not self._search_hotkey_start_pending:
             return
+        self._search_hotkey_start_pending = False
         from offlook.platforms.windows_hotkey import HotkeyListener
         self.search_listener = HotkeyListener('Ctrl+Q')
         self.search_listener.start()
@@ -388,6 +389,7 @@ class PreviewApplication:
             self._retire(old)
             self.hotkey_status.set(f'Current shortcut: {self.listener.combo}' if self.listener else 'Global shortcut disabled')
             self.status.set('Shortcut settings applied')
+            self._start_search_hotkey()
         except OffLookError as exc:
             self._retire(self._pending_listener)
             self.status.set(str(exc))
