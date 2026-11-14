@@ -32,6 +32,7 @@ class SelectionRequest:
     request_id: int
     foreground_hwnd: int
     config: PreviewConfig
+    allow_folder: bool = False
 
 
 @dataclass(frozen=True)

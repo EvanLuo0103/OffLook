@@ -37,6 +37,8 @@ Click **Choose file**, or replace the README path in the CLI example with an exi
 
 The **Search files** card searches a selected local folder and its subfolders without reading file contents. Enter an optional filename fragment, choose a document type, and click **Search**; it includes common Word (`.doc`, `.docx`), Excel (`.xls`, `.xlsx`), PowerPoint, and OpenDocument files. **Other / unknown** finds extensions outside the listed categories. Double-click a result to preview it. Links and network folders are not traversed.
 
+In File Explorer, open or select a local folder and press the fixed **Ctrl+Q** shortcut to load that folder into Search files. The existing `Ctrl+Space` shortcut remains reserved for previewing a selected file.
+
 To diagnose the Explorer shortcut without opening the GUI, run `py -m offlook diagnose-search-shortcut`. Select exactly one local folder in File Explorer and press **Ctrl+Q**. The diagnostic reports whether OffLook registered and detected the shortcut and whether the selected folder was confirmed.
 
 ## 4. Customize the shortcut
