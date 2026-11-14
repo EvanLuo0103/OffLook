@@ -53,8 +53,8 @@ class ExplorerSelectionProvider:
     desktop paths, resolve shortcuts, or read clipboard/background selections.
     """
 
-    def get_selected_file(self, foreground_hwnd: int) -> Path | None:
-        """Return the sole selected local file, or None for unsupported/lost focus.
+    def get_selected_file(self, foreground_hwnd: int, *, allow_folder: bool = False) -> Path | None:
+        """Return the sole selected local item, or None for unsupported/lost focus.
 
         Args:
             foreground_hwnd: Foreground top-level HWND captured at key receipt.
@@ -242,7 +242,7 @@ def _query_foreground(foreground_hwnd: int, pythoncom: Any, gui: Any) -> Path | 
         item = selected.Item(0)
         if not bool(item.IsFileSystem):
             raise FileAccessError("The selected item is not a local file system file")
-        if bool(item.IsFolder):
+        if bool(item.IsFolder) and not allow_folder:
             raise FileAccessError("Folder previews are not supported; select one local file")
         path = item.Path
         if not isinstance(path, str) or not path:
@@ -250,6 +250,14 @@ def _query_foreground(foreground_hwnd: int, pythoncom: Any, gui: Any) -> Path | 
         if int(gui.GetForegroundWindow()) != foreground_hwnd:
             return None
         from .windows_files import validate_local_file
+        if allow_folder and bool(item.IsFolder):
+            folder = Path(path)
+            try:
+                if not folder.is_dir():
+                    raise FileAccessError("The selected folder cannot be accessed")
+            except OSError as exc:
+                raise FileAccessError("The selected folder cannot be accessed") from exc
+            return folder
         return validate_local_file(path)
     finally:
         item = selected = folder_view = background = None

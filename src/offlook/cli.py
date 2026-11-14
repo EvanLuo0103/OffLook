@@ -20,6 +20,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     preview = commands.add_parser('preview', help='Preview a local file')
     preview.add_argument('filepath')
     preview.add_argument('--topmost', action='store_const', const=True, default=None)
+    commands.add_parser(
+        'diagnose-search-shortcut',
+        help='Test Ctrl+Q registration and the selected Explorer folder',
+    )
     args = parser.parse_args(argv)
     if args.background and args.command is not None:
         parser.error('--background cannot be combined with preview')
@@ -29,6 +33,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == 'preview' and not args.filepath.strip():
         parser.error('File path cannot be empty')
     multiprocessing.freeze_support()
+    if args.command == 'diagnose-search-shortcut':
+        from offlook.diagnostics import run_search_shortcut_diagnostic
+        return run_search_shortcut_diagnostic()
     from offlook.core.context import create_context
     from offlook.core.errors import OffLookError
     try:
