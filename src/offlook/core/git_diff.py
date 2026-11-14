@@ -44,7 +44,10 @@ def compare_with_head(path: str | Path, *, max_bytes: int = 2_000_000) -> GitCom
     except (OSError, subprocess.SubprocessError) as exc:
         raise PreviewError("Git is unavailable; install Git for Windows to compare files") from exc
     if root_result.returncode != 0:
-        raise PreviewError("The selected file is not inside a Git repository")
+        detail = root_result.stderr.strip()
+        raise PreviewError(
+            f"The selected file is not inside a Git repository{': ' + detail if detail else ''}"
+        )
     repository = Path(root_result.stdout.strip())
     try:
         relative = file_path.resolve().relative_to(repository.resolve())
@@ -61,7 +64,10 @@ def compare_with_head(path: str | Path, *, max_bytes: int = 2_000_000) -> GitCom
     except (OSError, subprocess.SubprocessError) as exc:
         raise PreviewError("Git could not read the committed file version") from exc
     if committed_result.returncode != 0:
-        raise PreviewError("The selected file is not tracked in the latest Git commit")
+        detail = committed_result.stderr.decode("utf-8", errors="replace").strip()
+        raise PreviewError(
+            f"The selected file is not tracked in the latest Git commit{': ' + detail if detail else ''}"
+        )
     committed = committed_result.stdout
     if len(committed) > max_bytes:
         raise PreviewError("The committed file exceeds the 2 MiB comparison limit")

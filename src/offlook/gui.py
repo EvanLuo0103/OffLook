@@ -216,6 +216,8 @@ class PreviewApplication:
                 self._diff_results.put((compare_with_head(path), None))
             except OffLookError as exc:
                 self._diff_results.put((None, str(exc)))
+            except Exception as exc:
+                self._diff_results.put((None, f'Git comparison failed: {type(exc).__name__}: {exc}'))
         self._diff_thread = threading.Thread(target=work, name='OffLookGitDiff', daemon=True)
         self._diff_thread.start()
 
