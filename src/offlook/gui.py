@@ -109,6 +109,9 @@ class PreviewApplication:
         primary = self._card(content, 'Quick preview')
         ttk.Button(primary, text='Choose file', style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
         ttk.Button(primary, text='Compare with Git HEAD', command=self._choose_for_diff).pack(anchor='w',pady=4)
+        self.diff_status = tk.StringVar(value='Select a tracked text file to compare with Git HEAD.')
+        ttk.Label(primary, textvariable=self.diff_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w', pady=(2, 0))
         ttk.Label(primary, textvariable=self.hotkey_status, style='Card.TLabel', wraplength=560).pack(anchor='w')
         search = self._card(content, 'Search files')
         search_row = ttk.Frame(search, style='Card.TFrame')
@@ -201,9 +204,13 @@ class PreviewApplication:
 
     def _choose_for_diff(self):
         """Choose a tracked text file for a working-tree versus HEAD comparison."""
+        self.diff_status.set('Choose a file in the file picker…')
         path = filedialog.askopenfilename(parent=self.root)
         if path:
+            self.diff_status.set(f'Selected: {Path(path).name}. Comparing…')
             self._start_comparison(path)
+        else:
+            self.diff_status.set('Git comparison cancelled.')
 
     def _start_comparison(self, path):
         """Run Git comparison away from the Tk thread."""
@@ -583,12 +590,16 @@ class PreviewApplication:
             pass
         else:
             if compare_error:
+                self.diff_status.set(compare_error)
                 self.status.set(compare_error)
             else:
                 from offlook.ui.diff import show_diff
                 if self.diff_window is not None and self.diff_window.winfo_exists():
                     self.diff_window.destroy()
                 self.diff_window = show_diff(self.root, comparison)
+                self.diff_status.set(
+                    'Differences found.' if comparison.changed else 'No differences from Git HEAD.'
+                )
                 self.status.set('Git comparison ready')
         for result in self.runner.poll():
             # Every resize/page/file switch invalidates older response generations.
