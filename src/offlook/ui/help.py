@@ -14,7 +14,7 @@ Select one file in File Explorer or on the desktop, then press the current short
 
 Searching files
 In "Search files", choose a local folder and optionally enter part of a filename. Choose "All types", a content category, "Documents (.doc/.xlsx)", or "Other / unknown", then click "Search".
-The search includes subfolders but does not follow links or network folders. Double-click a result to preview it. Press Ctrl+F to focus and select the filename search box.
+The search includes subfolders but does not follow links or network folders. Double-click a result to preview it.
 Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
 
 Current shortcut
