@@ -73,7 +73,7 @@ class PreviewApplication:
             self.tray.start()
         self.root.protocol('WM_DELETE_WINDOW', self._hide if resident else self.shutdown)
         self.root.bind('<F1>', self._help_key)
-        self.root.bind('<Control-f>', self._focus_search)
+        self.root.bind_all('<Control-f>', self._focus_search)
         self.root.bind('<Configure>', self._main_configure)
         if not resident or background:
             self.root.withdraw()
