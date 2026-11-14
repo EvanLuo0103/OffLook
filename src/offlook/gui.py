@@ -45,6 +45,8 @@ class PreviewApplication:
         self._record_original = ''
         self._path_thread = None
         self._path_results = queue.Queue()
+        self._search_thread = None
+        self._search_results = queue.Queue()
         self.preview = self.path = None
         self._preview_config = None
         self._preview_opened = False
@@ -102,6 +104,30 @@ class PreviewApplication:
         primary = self._card(content, 'Quick preview')
         ttk.Button(primary, text='Choose file', style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
         ttk.Label(primary, textvariable=self.hotkey_status, style='Card.TLabel', wraplength=560).pack(anchor='w')
+        search = self._card(content, 'Search files')
+        search_row = ttk.Frame(search, style='Card.TFrame')
+        search_row.pack(fill='x', pady=4)
+        ttk.Button(search_row, text='Choose folder', command=self._choose_search_folder).pack(side='left')
+        self.search_folder = tk.StringVar()
+        ttk.Label(search, textvariable=self.search_folder, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        filter_row = ttk.Frame(search, style='Card.TFrame')
+        filter_row.pack(fill='x', pady=4)
+        self.search_name = tk.StringVar()
+        ttk.Entry(filter_row, textvariable=self.search_name).pack(side='left', fill='x', expand=True)
+        self.search_kind = tk.StringVar(value='All types')
+        ttk.Combobox(filter_row, textvariable=self.search_kind, state='readonly', width=14,
+                     values=('All types', 'Text', 'Markdown', 'Code', 'CSV', 'Images', 'PDF', 'Other')).pack(side='left', padx=(8, 0))
+        self.search_button = ttk.Button(search, text='Search', command=self._search)
+        self.search_button.pack(anchor='w', pady=(4, 8))
+        self.search_tree = ttk.Treeview(search, columns=('type', 'path'), show='headings', height=6)
+        self.search_tree.heading('type', text='Type')
+        self.search_tree.heading('path', text='File')
+        self.search_tree.column('type', width=90, stretch=False)
+        self.search_tree.column('path', width=520)
+        self.search_tree.pack(fill='x')
+        self.search_tree.bind('<Double-1>', self._open_search_result)
+        self.search_status = tk.StringVar(value='Choose a folder to search recursively.')
+        ttk.Label(search, textvariable=self.search_status, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
         settings = self._card(content, 'Shortcut settings')
         self.enable_control = ttk.Checkbutton(settings,text='Enable global shortcut',variable=self.enabled)
         self.enable_control.pack(anchor='w',pady=4)
@@ -162,6 +188,50 @@ class PreviewApplication:
         path=filedialog.askopenfilename(parent=self.root)
         if path:
             self.open(path)
+
+    def _choose_search_folder(self):
+        """Choose the root folder for recursive local search."""
+        folder = filedialog.askdirectory(parent=self.root)
+        if folder:
+            self.search_folder.set(folder)
+            self.search_status.set('Ready to search.')
+
+    def _search(self):
+        """Run recursive search off the Tk thread and display bounded results."""
+        if self._search_thread and self._search_thread.is_alive():
+            return
+        folder = self.search_folder.get().strip()
+        if not folder:
+            self.search_status.set('Choose a folder first.')
+            return
+        from offlook.core import FileKind, find_files
+        kinds = {'Text': FileKind.TEXT, 'Markdown': FileKind.MARKDOWN, 'Code': FileKind.CODE,
+                 'CSV': FileKind.CSV, 'Images': FileKind.IMAGE, 'PDF': FileKind.PDF,
+                 'Other': FileKind.BINARY}
+        selected_kind = kinds.get(self.search_kind.get())
+        self.search_button.state(['disabled'])
+        self.search_status.set('Searching…')
+        self._search_thread = threading.Thread(
+            target=self._search_worker,
+            args=(folder, self.search_name.get(), selected_kind, find_files),
+            name='OffLookSearch', daemon=True,
+        )
+        self._search_thread.start()
+
+    def _search_worker(self, folder, filename, kind, finder):
+        """Return search results without touching Tk from the worker thread."""
+        try:
+            self._search_results.put((finder(folder, filename=filename, kind=kind), None))
+        except OffLookError as exc:
+            self._search_results.put((None, str(exc)))
+        except OSError as exc:
+            self._search_results.put((None, f'File search failed: {exc}'))
+
+    def _open_search_result(self, _event):
+        """Preview the selected search result."""
+        selected = self.search_tree.selection()
+        if selected:
+            self.open(self.search_tree.item(selected[0], 'values')[1])
 
     def _toggle_startup(self):
         """Change logon registration only on an explicit user action."""
@@ -406,6 +476,20 @@ class PreviewApplication:
                 if not result.broadcast_ok: message+=' Environment update notification failed.'
                 if result.conflicting_executable: message+=f' Another version takes precedence: {result.conflicting_executable}; use py -m offlook.'
                 self.status.set(message)
+        try:
+            search_results, search_error = self._search_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self.search_button.state(['!disabled'])
+            for item in self.search_tree.get_children():
+                self.search_tree.delete(item)
+            if search_error:
+                self.search_status.set(search_error)
+            else:
+                for item in search_results:
+                    self.search_tree.insert('', 'end', values=(item.kind.value, str(item.path)))
+                self.search_status.set(f'{len(search_results)} file(s) found.')
         for result in self.runner.poll():
             # Every resize/page/file switch invalidates older response generations.
             if self.closing or result['request_id']!=self.generation: continue
@@ -428,7 +512,7 @@ class PreviewApplication:
                         self._preview_opened=True
                         self.context.events.publish('preview.opened',{'file_info':result['data'].file_info})
         listeners=[item for item in [self.listener,self._pending_listener,*self._retiring_listeners] if item]
-        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()):
+        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()):
             self.root.destroy()
             return
         self.root.after(25,self._poll)

@@ -35,6 +35,8 @@ Click **Choose file**, or replace the README path in the CLI example with an exi
 - Unsupported formats show the filename, size, full path, timestamps, attributes, and type icon. External thumbnail providers are not used.
 - Defaults are 10 MiB and a 5-second timeout. Oversized media is not decoded, and text shows only a prefix. Images and PDFs refresh to match the window's physical pixel size, up to 4,096 pixels per edge and 8,388,608 pixels total. Small source images are not enlarged.
 
+The **Search files** card searches a selected local folder and its subfolders without reading file contents. Enter an optional filename fragment, choose a document type, and click **Search**; double-click a result to preview it. Links and network folders are not traversed.
+
 ## 4. Customize the shortcut
 
 Keep OffLook running, select one file in File Explorer or on the desktop, and press the default Ctrl+Space shortcut to preview it.

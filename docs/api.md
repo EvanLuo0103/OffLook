@@ -11,6 +11,13 @@ info = FileTypeDetector().detect("README.md")
 print(info.kind.value, info.path, info.size_bytes)
 ```
 
+To search a local folder recursively without reading file contents:
+
+```python
+from offlook.core import FileKind, find_files
+results = find_files("C:/Documents", filename="report", kind=FileKind.PDF)
+```
+
 FileInfo contains path, kind, size_bytes, modified_time_ns, extension, encoding, and encoding_confidence. Detection synchronously reads up to 64 KiB and accepts only local regular files. Kinds are image/text/markdown/pdf/code/csv/binary; the binary classification does not mean binary contents will be displayed.
 
 ## Open a preview
