@@ -37,6 +37,7 @@ class PreviewApplication:
         self.root.minsize(round(640*self._scale), round(520*self._scale))
         self.runner = WorkerRunner(renderers)
         self.listener = self._pending_listener = self.search_listener = None
+        self.diff_listener = None
         self._pending_config = None
         self._pending_persist = False
         self._retiring_listeners = []
@@ -47,6 +48,9 @@ class PreviewApplication:
         self._path_results = queue.Queue()
         self._search_thread = None
         self._search_results = queue.Queue()
+        self._diff_results = queue.Queue()
+        self._diff_thread = None
+        self.diff_window = None
         self.preview = self.path = None
         self._preview_config = None
         self._preview_opened = False
@@ -104,6 +108,7 @@ class PreviewApplication:
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(item,width=event.width))
         primary = self._card(content, 'Quick preview')
         ttk.Button(primary, text='Choose file', style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
+        ttk.Button(primary, text='Compare with Git HEAD', command=self._choose_for_diff).pack(anchor='w',pady=4)
         ttk.Label(primary, textvariable=self.hotkey_status, style='Card.TLabel', wraplength=560).pack(anchor='w')
         search = self._card(content, 'Search files')
         search_row = ttk.Frame(search, style='Card.TFrame')
@@ -193,6 +198,26 @@ class PreviewApplication:
         path=filedialog.askopenfilename(parent=self.root)
         if path:
             self.open(path)
+
+    def _choose_for_diff(self):
+        """Choose a tracked text file for a working-tree versus HEAD comparison."""
+        path = filedialog.askopenfilename(parent=self.root)
+        if path:
+            self._start_comparison(path)
+
+    def _start_comparison(self, path):
+        """Run Git comparison away from the Tk thread."""
+        if self._diff_thread and self._diff_thread.is_alive():
+            return
+        from offlook.core.git_diff import compare_with_head
+        self.status.set('Comparing the working file with Git HEAD…')
+        def work():
+            try:
+                self._diff_results.put((compare_with_head(path), None))
+            except OffLookError as exc:
+                self._diff_results.put((None, str(exc)))
+        self._diff_thread = threading.Thread(target=work, name='OffLookGitDiff', daemon=True)
+        self._diff_thread.start()
 
     def _choose_search_folder(self):
         """Choose the root folder for recursive local search."""
@@ -393,6 +418,14 @@ class PreviewApplication:
         self.search_listener = HotkeyListener('Ctrl+Q')
         self.search_listener.start()
 
+    def _start_diff_listener(self):
+        """Start the fixed Explorer Git comparison shortcut after search registration."""
+        if self.diff_listener is not None or self.closing:
+            return
+        from offlook.platforms.windows_hotkey import HotkeyListener
+        self.diff_listener = HotkeyListener('Ctrl+Alt+D')
+        self.diff_listener.start()
+
     def _add_path(self):
         """Run add-only user PATH registration away from the Tk thread."""
         if self._path_thread and self._path_thread.is_alive():
@@ -465,6 +498,16 @@ class PreviewApplication:
             self.generation, hwnd, self.context.config.current, allow_folder=True
         ))
 
+    def _diff_hotkey(self, hwnd):
+        """Use Ctrl+Alt+D to compare the selected Explorer file with Git HEAD."""
+        if not hwnd or self.closing:
+            return
+        from offlook.platforms.windows_selection import SelectionRequest
+        self.generation += 1
+        self.selection_hwnd = hwnd
+        self.selection_mode = 'diff'
+        self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current))
+
     def _poll(self):
         """Consume native events and worker results only on the owning Tk thread."""
         if self.tray:
@@ -482,6 +525,14 @@ class PreviewApplication:
             for event in self.search_listener.poll():
                 if event['type'] == 'hotkey' and not self.closing:
                     self._search_hotkey(event['foreground_hwnd'])
+                elif event['type'] == 'error':
+                    self.status.set(event['message'])
+                elif event['type'] == 'ready':
+                    self._start_diff_listener()
+        if self.diff_listener:
+            for event in self.diff_listener.poll():
+                if event['type'] == 'hotkey' and not self.closing:
+                    self._diff_hotkey(event['foreground_hwnd'])
                 elif event['type'] == 'error':
                     self.status.set(event['message'])
         pending=self._pending_listener
@@ -524,6 +575,19 @@ class PreviewApplication:
                 for item in search_results:
                     self.search_tree.insert('', 'end', values=(item.kind.value, str(item.path)))
                 self.search_status.set(f'{len(search_results)} file(s) found.')
+        try:
+            comparison, compare_error = self._diff_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            if compare_error:
+                self.status.set(compare_error)
+            else:
+                from offlook.ui.diff import show_diff
+                if self.diff_window is not None and self.diff_window.winfo_exists():
+                    self.diff_window.destroy()
+                self.diff_window = show_diff(self.root, comparison)
+                self.status.set('Git comparison ready')
         for result in self.runner.poll():
             # Every resize/page/file switch invalidates older response generations.
             if self.closing or result['request_id']!=self.generation: continue
@@ -540,6 +604,8 @@ class PreviewApplication:
                         self._show()
                         self.search_entry.focus_set()
                         self.search_entry.selection_range(0, 'end')
+                    elif self.selection_mode == 'diff':
+                        self._start_comparison(result['data'].path)
                     else:
                         self.open(result['data'].path)
                 self.selection_mode = None
@@ -554,8 +620,8 @@ class PreviewApplication:
                     if not self._preview_opened:
                         self._preview_opened=True
                         self.context.events.publish('preview.opened',{'file_info':result['data'].file_info})
-        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,*self._retiring_listeners] if item]
-        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()):
+        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,*self._retiring_listeners] if item]
+        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()):
             self.root.destroy()
             return
         self.root.after(25,self._poll)
@@ -577,10 +643,11 @@ class PreviewApplication:
         self.close_preview(exiting=False)
         self.unsubscribe()
         self.runner.close()
-        for listener in [self.listener,self._pending_listener,self.search_listener,*self._retiring_listeners]:
+        for listener in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,*self._retiring_listeners]:
             if listener: listener.stop()
         if self.tray: self.tray.stop()
         if self.help_window and self.help_window.winfo_exists(): self.help_window.destroy()
+        if self.diff_window and self.diff_window.winfo_exists(): self.diff_window.destroy()
 
     def run(self)->int:
         """Run the sole Tk loop and return the preview/interrupt exit code."""
