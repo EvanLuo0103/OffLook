@@ -236,6 +236,20 @@ def _query_foreground(foreground_hwnd: int, pythoncom: Any, gui: Any) -> Path | 
         selected = folder_view.SelectedItems()
         count = int(selected.Count)
         if count == 0:
+            if allow_folder:
+                try:
+                    current_folder = folder_view.Folder.Self.Path
+                except Exception as exc:
+                    raise FileAccessError("Cannot identify the current Explorer folder") from exc
+                if not isinstance(current_folder, str) or not current_folder:
+                    raise FileAccessError("The current Explorer view has no local folder path")
+                folder = Path(current_folder)
+                try:
+                    if folder.is_dir():
+                        return folder
+                except OSError as exc:
+                    raise FileAccessError("The current Explorer folder cannot be accessed") from exc
+                raise FileAccessError("The current Explorer view is not a local folder")
             raise FileAccessError("No file is selected; select one local file")
         if count != 1:
             raise FileAccessError("Multiple items are selected; select only one local file")
