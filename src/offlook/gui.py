@@ -108,11 +108,14 @@ class PreviewApplication:
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(item,width=event.width))
         primary = self._card(content, 'Quick preview')
         ttk.Button(primary, text='Choose file', style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
-        ttk.Button(primary, text='Compare with Git HEAD', command=self._choose_for_diff).pack(anchor='w',pady=4)
-        self.diff_status = tk.StringVar(value='Select a tracked text file to compare with Git HEAD.')
-        ttk.Label(primary, textvariable=self.diff_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w', pady=(2, 0))
         ttk.Label(primary, textvariable=self.hotkey_status, style='Card.TLabel', wraplength=560).pack(anchor='w')
+        comparison = self._card(content, 'Git comparison')
+        ttk.Button(comparison, text='Compare with Git HEAD', command=self._choose_for_diff).pack(anchor='w', pady=8)
+        ttk.Label(comparison, text='Shortcut: Ctrl+Alt+D in File Explorer on a tracked text file.',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        self.diff_status = tk.StringVar(value='Select a tracked text file to compare with Git HEAD.')
+        ttk.Label(comparison, textvariable=self.diff_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w', pady=(6, 0))
         search = self._card(content, 'Search files')
         search_row = ttk.Frame(search, style='Card.TFrame')
         search_row.pack(fill='x', pady=4)

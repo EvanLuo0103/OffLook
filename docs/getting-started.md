@@ -39,7 +39,7 @@ The **Search files** card searches a selected local folder and its subfolders wi
 
 In File Explorer, open or select a local folder and press the fixed **Ctrl+Q** shortcut to load that folder into Search files. The existing `Ctrl+Space` shortcut remains reserved for previewing a selected file.
 
-To compare a tracked text file with its latest committed Git version, click **Compare with Git HEAD** or select the file in File Explorer and press **Ctrl+Alt+D**. The comparison window highlights added, deleted, and modified lines. Git comparison supports UTF-8 text files up to 2 MiB.
+The separate **Git comparison** card compares a tracked text file with its latest committed Git version. Click **Compare with Git HEAD**, or select the file in File Explorer and press **Ctrl+Alt+D**. The comparison window highlights added, deleted, and modified lines. Git comparison supports UTF-8 text files up to 2 MiB.
 
 To diagnose the Explorer shortcut without opening the GUI, run `py -m offlook diagnose-search-shortcut`. Select exactly one local folder in File Explorer and press **Ctrl+Q**. The diagnostic reports whether OffLook registered and detected the shortcut and whether the selected folder was confirmed.
 
