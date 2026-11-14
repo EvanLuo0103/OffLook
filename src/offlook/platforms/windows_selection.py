@@ -32,7 +32,6 @@ class SelectionRequest:
     request_id: int
     foreground_hwnd: int
     config: PreviewConfig
-    for_search: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,8 +53,8 @@ class ExplorerSelectionProvider:
     desktop paths, resolve shortcuts, or read clipboard/background selections.
     """
 
-    def get_selected_file(self, foreground_hwnd: int, *, for_search: bool = False) -> Path | None:
-        """Return the sole selected local file/folder, or None for lost focus.
+    def get_selected_file(self, foreground_hwnd: int) -> Path | None:
+        """Return the sole selected local file, or None for unsupported/lost focus.
 
         Args:
             foreground_hwnd: Foreground top-level HWND captured at key receipt.
@@ -243,24 +242,14 @@ def _query_foreground(foreground_hwnd: int, pythoncom: Any, gui: Any) -> Path | 
         item = selected.Item(0)
         if not bool(item.IsFileSystem):
             raise FileAccessError("The selected item is not a local file system file")
-        if bool(item.IsFolder) and not for_search:
+        if bool(item.IsFolder):
             raise FileAccessError("Folder previews are not supported; select one local file")
-        if for_search and not bool(item.IsFolder):
-            raise FileAccessError("Select a folder in File Explorer to start a folder search")
         path = item.Path
         if not isinstance(path, str) or not path:
             raise FileAccessError("The selected item has no valid local file path")
         if int(gui.GetForegroundWindow()) != foreground_hwnd:
             return None
         from .windows_files import validate_local_file
-        if for_search:
-            folder = Path(path)
-            try:
-                if not folder.is_dir():
-                    raise FileAccessError("Select a folder in File Explorer to start a folder search")
-            except OSError as exc:
-                raise FileAccessError("The selected folder cannot be accessed") from exc
-            return folder
         return validate_local_file(path)
     finally:
         item = selected = folder_view = background = None
