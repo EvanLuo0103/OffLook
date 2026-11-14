@@ -43,7 +43,7 @@ Keep OffLook running, select one file in File Explorer or on the desktop, and pr
 Click **Record shortcut** in the main window, press a new combination, then click **Apply**. Esc cancels recording. **Reset default** also requires **Apply** to take effect.
 
 Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Space, or F1–F11. The Windows key, F12, and reserved combinations such as Alt+F4 and Alt+Space are not supported. The old shortcut is kept if registration or saving fails.
-The fixed **Ctrl+Alt+F** Search shortcut is separate from the preview shortcut and cannot be changed. In File Explorer, select one local folder and press it to open OffLook's Search files panel at that folder. Selecting a file shows an explanatory error.
+The fixed **Ctrl+Q** Search shortcut is separate from the preview shortcut and cannot be changed. In File Explorer, select one local folder and press it to open OffLook's Search files panel at that folder. Selecting a file shows an explanatory error.
 Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the configuration file explicitly specified on the CLI. Older files without a hotkey field use Ctrl+Space.
 
 ## 5. Background mode, startup, and Help

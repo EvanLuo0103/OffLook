@@ -147,7 +147,7 @@ class PreviewApplication:
         for button in (self.record_button,self.apply_button,self.reset_button):
             button.pack(side='left',padx=(0,8))
         ttk.Label(settings,text='Ctrl or Alt, with optional Shift; letters, digits, Space, F1–F11.',style='Card.TLabel',wraplength=560).pack(anchor='w',pady=(8,0))
-        ttk.Label(settings, text='Search shortcut: Ctrl+Alt+F (fixed). Select a folder in File Explorer first.',
+        ttk.Label(settings, text='Search shortcut: Ctrl+Q (fixed). Select a folder in File Explorer first.',
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(12, 0))
         integration=self._card(content,'System integration')
         ttk.Checkbutton(integration,text='Start when signing in to Windows',variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
@@ -341,7 +341,7 @@ class PreviewApplication:
         if self.search_listener is not None or self.closing:
             return
         from offlook.platforms.windows_hotkey import HotkeyListener
-        self.search_listener = HotkeyListener('Ctrl+Alt+F')
+        self.search_listener = HotkeyListener('Ctrl+Q')
         self.search_listener.start()
 
     def _retire(self,listener):
@@ -483,7 +483,7 @@ class PreviewApplication:
         if self.search_listener:
             for event in self.search_listener.poll():
                 if event['type'] == 'ready':
-                    self.search_hotkey_status.set('Search shortcut ready: Ctrl+Alt+F')
+                    self.search_hotkey_status.set('Search shortcut ready: Ctrl+Q')
                 elif event['type'] == 'hotkey' and not self.closing:
                     self._search_hotkey(event['foreground_hwnd'])
                 elif event['type'] == 'error':

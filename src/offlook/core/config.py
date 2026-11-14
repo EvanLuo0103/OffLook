@@ -28,7 +28,7 @@ class PreviewConfig:
     supported_extensions: tuple[str, ...] = DEFAULT_SUPPORTED_EXTENSIONS
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
-    search_hotkey: str = "Ctrl+Alt+F"
+    search_hotkey: str = "Ctrl+Q"
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
