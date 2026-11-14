@@ -59,6 +59,7 @@ class PreviewApplication:
         self.tray = self.startup = self.help_window = None
         self.status = tk.StringVar(value='All files stay on your device. Nothing is uploaded.')
         self.hotkey_status = tk.StringVar(value='Shortcut not enabled')
+        self.search_hotkey_status = tk.StringVar(value='Search shortcut starting…')
         self.combo = tk.StringVar(value=context.config.current.hotkey)
         self.search_combo = tk.StringVar(value=context.config.current.search_hotkey)
         self.enabled = tk.BooleanVar(value=context.config.current.hotkey_enabled)
@@ -158,6 +159,8 @@ class PreviewApplication:
         self.search_apply_button = ttk.Button(search_shortcut_row, text='Apply', command=self._apply_search_hotkey)
         self.search_apply_button.pack(side='left', padx=(8, 0))
         self.search_combo_entry.bind('<KeyPress>', self._capture)
+        ttk.Label(settings, textvariable=self.search_hotkey_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w', pady=(4, 0))
         integration=self._card(content,'System integration')
         ttk.Checkbutton(integration,text='Start when signing in to Windows',variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
         self.path_button=ttk.Button(integration,text='Add to PATH',command=self._add_path)
@@ -443,6 +446,7 @@ class PreviewApplication:
                 self.context.config.update(self._pending_config, persist=True)
             self._retire(self.search_listener)
             self.search_listener = self._pending_search_listener
+            self.search_hotkey_status.set(f'Search shortcut ready: {self.search_listener.combo}')
             self.status.set(f'Search shortcut applied: {self.search_listener.combo}')
         except OffLookError as exc:
             self._retire(self._pending_search_listener)
@@ -528,6 +532,7 @@ class PreviewApplication:
         self.generation += 1
         self.selection_hwnd = hwnd
         self.selection_mode = 'search'
+        self.search_hotkey_status.set('Search shortcut pressed; reading the selected Explorer file…')
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current))
 
     def _poll(self):
@@ -548,6 +553,7 @@ class PreviewApplication:
                 if event['type'] == 'hotkey' and not self.closing:
                     self._search_hotkey(event['foreground_hwnd'])
                 elif event['type'] == 'error':
+                    self.search_hotkey_status.set(event['message'])
                     self.status.set(event['message'])
         pending=self._pending_listener
         if pending and not self.closing:
@@ -609,7 +615,10 @@ class PreviewApplication:
                 import win32gui
                 hwnd=self.selection_hwnd
                 self.selection_hwnd=None
-                if result['code']: self.status.set(result['message'])
+                if result['code']:
+                    self.status.set(result['message'])
+                    if self.selection_mode == 'search':
+                        self.search_hotkey_status.set(result['message'])
                 elif win32gui.GetForegroundWindow()==hwnd and result['data'].path is not None:
                     if self.selection_mode == 'search':
                         self.search_folder.set(str(result['data'].path.parent))
