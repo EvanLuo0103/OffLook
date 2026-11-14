@@ -51,10 +51,12 @@ def _render_request(request: RenderRequest, renderers: dict[FileKind, type[Rende
     info = FileTypeDetector().detect(request.path)
     disabled = info.extension not in request.config.supported_extensions
     oversized_media = info.kind in (FileKind.IMAGE, FileKind.PDF) and info.size_bytes > request.config.max_file_size_bytes
-    if disabled or oversized_media or info.kind == FileKind.BINARY:
+    if disabled or oversized_media or info.kind in (FileKind.BINARY, FileKind.DOCUMENT):
         data = MetadataRenderer().render(info, request)
         if info.kind == FileKind.BINARY:
             notice = "Content preview is not supported for this format"
+        elif info.kind == FileKind.DOCUMENT:
+            notice = "Document preview is not supported; showing file information only"
         elif oversized_media:
             notice = "Safety preview limit exceeded; showing file information only"
         else:

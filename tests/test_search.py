@@ -11,6 +11,8 @@ class SearchTests(unittest.TestCase):
             root = Path(temporary)
             (root / "nested").mkdir()
             (root / "Report.PDF").write_bytes(b"%PDF-1.4")
+            (root / "budget.xlsx").write_bytes(b"not-previewed")
+            (root / "archive.xyz").write_bytes(b"unknown")
             (root / "nested" / "report.txt").write_text("content", encoding="utf-8")
             (root / "nested" / "notes.csv").write_text("a,b", encoding="utf-8")
 
@@ -18,6 +20,10 @@ class SearchTests(unittest.TestCase):
             self.assertEqual([item.path.name for item in results], ["Report.PDF", "report.txt"])
             pdfs = find_files(root, kind=FileKind.PDF)
             self.assertEqual([item.path.name for item in pdfs], ["Report.PDF"])
+            documents = find_files(root, kind=FileKind.DOCUMENT)
+            self.assertEqual([item.path.name for item in documents], ["budget.xlsx"])
+            other = find_files(root, kind=FileKind.BINARY)
+            self.assertEqual([item.path.name for item in other], ["archive.xyz"])
 
     def test_skips_symlinked_files(self):
         with tempfile.TemporaryDirectory() as temporary:

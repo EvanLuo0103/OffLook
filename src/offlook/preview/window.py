@@ -357,7 +357,8 @@ class PreviewWindow:
         ttk.Label(heading, text="File information", style="Preview.Section.TLabel").pack(anchor="w", pady=(self._px(12), 0))
         ttk.Label(heading, text="Safe type icon · File contents not parsed", style="Preview.Card.Muted.TLabel").pack(anchor="w", pady=self._px(8))
         kinds = {FileKind.TEXT: "Text", FileKind.MARKDOWN: "Markdown", FileKind.CODE: "Code",
-                 FileKind.CSV: "CSV table", FileKind.IMAGE: "Image", FileKind.PDF: "PDF", FileKind.BINARY: "Other file"}
+                 FileKind.CSV: "CSV table", FileKind.IMAGE: "Image", FileKind.PDF: "PDF",
+                 FileKind.DOCUMENT: "Document", FileKind.BINARY: "Other file"}
         values = [
             ("File name", info.path.name),
             ("Type", f"{kinds[info.kind]} / {info.extension or 'No extension'}"),

@@ -115,8 +115,9 @@ class PreviewApplication:
         self.search_name = tk.StringVar()
         ttk.Entry(filter_row, textvariable=self.search_name).pack(side='left', fill='x', expand=True)
         self.search_kind = tk.StringVar(value='All types')
-        ttk.Combobox(filter_row, textvariable=self.search_kind, state='readonly', width=14,
-                     values=('All types', 'Text', 'Markdown', 'Code', 'CSV', 'Images', 'PDF', 'Other')).pack(side='left', padx=(8, 0))
+        ttk.Combobox(filter_row, textvariable=self.search_kind, state='readonly', width=18,
+                     values=('All types', 'Text', 'Markdown', 'Code', 'CSV', 'Images', 'PDF',
+                             'Documents (.doc/.xlsx)', 'Other / unknown')).pack(side='left', padx=(8, 0))
         self.search_button = ttk.Button(search, text='Search', command=self._search)
         self.search_button.pack(anchor='w', pady=(4, 8))
         self.search_tree = ttk.Treeview(search, columns=('type', 'path'), show='headings', height=6)
@@ -207,7 +208,8 @@ class PreviewApplication:
         from offlook.core import FileKind, find_files
         kinds = {'Text': FileKind.TEXT, 'Markdown': FileKind.MARKDOWN, 'Code': FileKind.CODE,
                  'CSV': FileKind.CSV, 'Images': FileKind.IMAGE, 'PDF': FileKind.PDF,
-                 'Other': FileKind.BINARY}
+                 'Documents (.doc/.xlsx)': FileKind.DOCUMENT,
+                 'Other / unknown': FileKind.BINARY}
         selected_kind = kinds.get(self.search_kind.get())
         self.search_button.state(['disabled'])
         self.search_status.set('Searching…')

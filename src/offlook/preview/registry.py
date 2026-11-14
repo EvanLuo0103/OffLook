@@ -64,5 +64,6 @@ def default_renderers() -> RendererRegistry:
     registry.register(FileKind.CSV, CsvRenderer)
     registry.register(FileKind.IMAGE, ImageRenderer)
     registry.register(FileKind.PDF, PdfRenderer)
+    registry.register(FileKind.DOCUMENT, MetadataRenderer)
     registry.register(FileKind.BINARY, MetadataRenderer)
     return registry

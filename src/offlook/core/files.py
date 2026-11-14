@@ -18,6 +18,7 @@ class FileKind(str, Enum):
     PDF = "pdf"
     CODE = "code"
     CSV = "csv"
+    DOCUMENT = "document"
     BINARY = "binary"
 
 
@@ -31,6 +32,10 @@ CODE_EXTENSIONS = (
     ".sql", ".sh", ".ps1", ".bat",
 )
 CSV_EXTENSIONS = (".csv", ".tsv")
+DOCUMENT_EXTENSIONS = (
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".odt", ".ods", ".odp", ".rtf",
+)
 DEFAULT_SUPPORTED_EXTENSIONS = (
     IMAGE_EXTENSIONS + TEXT_EXTENSIONS + MARKDOWN_EXTENSIONS + PDF_EXTENSIONS
     + CODE_EXTENSIONS + CSV_EXTENSIONS + ("",)
@@ -42,6 +47,7 @@ _EXTENSION_KINDS = {
     **dict.fromkeys(PDF_EXTENSIONS, FileKind.PDF),
     **dict.fromkeys(CODE_EXTENSIONS, FileKind.CODE),
     **dict.fromkeys(CSV_EXTENSIONS, FileKind.CSV),
+    **dict.fromkeys(DOCUMENT_EXTENSIONS, FileKind.DOCUMENT),
 }
 
 
