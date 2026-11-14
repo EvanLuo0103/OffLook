@@ -28,6 +28,7 @@ class PreviewConfig:
     supported_extensions: tuple[str, ...] = DEFAULT_SUPPORTED_EXTENSIONS
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
+    search_hotkey: str = "Ctrl+Alt+F"
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
@@ -40,6 +41,11 @@ class PreviewConfig:
         except HotkeyError as exc:
             raise ConfigError(f"Invalid hotkey setting: {exc}") from exc
         object.__setattr__(self, "hotkey", canonical_hotkey)
+        try:
+            search_hotkey = parse_hotkey(self.search_hotkey).canonical
+        except HotkeyError as exc:
+            raise ConfigError(f"Invalid search hotkey setting: {exc}") from exc
+        object.__setattr__(self, "search_hotkey", search_hotkey)
         timeout = self.preview_timeout_seconds
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ConfigError("preview_timeout_seconds must be a finite positive number (seconds)")
