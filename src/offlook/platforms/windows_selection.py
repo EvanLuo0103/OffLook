@@ -100,7 +100,9 @@ class ExplorerSelectionProvider:
                 )
             initialized = True
             try:
-                path = _query_foreground(foreground_hwnd, pythoncom, win32gui)
+                path = _query_foreground(
+                    foreground_hwnd, pythoncom, win32gui, allow_folder=allow_folder
+                )
             except Exception as exc:
                 # dynamic.Dispatch frames may retain COM wrappers as ``self``.
                 # Keep exception chains but release inactive frames before COM
@@ -175,7 +177,9 @@ def _desktop_dispatch(windows: Any, pythoncom: Any, variant_type: Any) -> Any:
         desktop = result = windows = None
 
 
-def _query_foreground(foreground_hwnd: int, pythoncom: Any, gui: Any) -> Path | None:
+def _query_foreground(
+    foreground_hwnd: int, pythoncom: Any, gui: Any, *, allow_folder: bool = False
+) -> Path | None:
     """Inspect candidate HWNDs, then read only a unique matching active view.
 
     Runs after STA initialization. Returns None for focus changes/unsupported
