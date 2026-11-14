@@ -81,7 +81,7 @@ class PreviewApplication:
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
             self._configure_hotkey()
-            self._start_search_hotkey()
+            self.root.after(500, self._start_search_hotkey)
         self.root.after(25, self._poll)
         self.root.after_idle(self._clamp_main)
 
@@ -482,7 +482,9 @@ class PreviewApplication:
                 elif event['type']=='error': self.hotkey_status.set(event['message'])
         if self.search_listener:
             for event in self.search_listener.poll():
-                if event['type'] == 'hotkey' and not self.closing:
+                if event['type'] == 'ready':
+                    self.search_hotkey_status.set('Search shortcut ready: Ctrl+Alt+F')
+                elif event['type'] == 'hotkey' and not self.closing:
                     self._search_hotkey(event['foreground_hwnd'])
                 elif event['type'] == 'error':
                     self.search_hotkey_status.set(event['message'])
