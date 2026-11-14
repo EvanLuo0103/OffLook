@@ -21,7 +21,7 @@ Current shortcut
 {hotkey}
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.
 You can still choose files in the main window when the global shortcut is disabled.
-The separate Search shortcut can be configured in Shortcut settings. When used in File Explorer, it opens Search files with the selected file's folder.
+The fixed Ctrl+Alt+F Search shortcut is separate from the preview shortcut. In File Explorer, select one local folder and press it to open Search files at that folder; selecting a file shows an explanatory error.
 
 Preview controls
 PDFs have Previous / Next buttons; page numbers appear only for rendered PDF pages. "Always on top" applies only to the current preview.

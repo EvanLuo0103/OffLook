@@ -18,7 +18,7 @@ No virtual environment is used. The initial installation downloads dependencies;
 
 - Click **Choose file** in the main window, or select one file in File Explorer or on the desktop and press the default **Ctrl+Space** shortcut.
 - Use **Search files** to choose a local folder, search recursively by filename, and filter by document type, including Word, Excel, and PowerPoint files; double-click a result to preview it.
-- In File Explorer, select a file and press the configurable **Search shortcut** (Ctrl+Alt+F by default) to open Search files at that file's folder.
+- In File Explorer, select a folder and press the fixed **Ctrl+Alt+F** shortcut to open Search files at that folder.
 - Use **Shortcut settings** to record and apply a new combination. The previous shortcut is kept if registration or saving fails.
 - Click **Add to PATH** and reopen PowerShell as instructed to use `offlook preview '.\README.md'`.
 - Close a preview with Esc or Space, navigate PDF pages, or keep the current preview on top. Images and PDFs refresh at higher resolution when the window grows.

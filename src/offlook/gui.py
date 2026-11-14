@@ -36,13 +36,12 @@ class PreviewApplication:
         self.root.geometry(f'{round(720*self._scale)}x{round(620*self._scale)}')
         self.root.minsize(round(640*self._scale), round(520*self._scale))
         self.runner = WorkerRunner(renderers)
-        self.listener = self._pending_listener = self.search_listener = self._pending_search_listener = None
+        self.listener = self._pending_listener = self.search_listener = None
         self._pending_config = None
         self._pending_persist = False
         self._retiring_listeners = []
         self._hotkey_transaction_active = False
         self._recording = False
-        self._record_target = 'preview'
         self._record_original = ''
         self._path_thread = None
         self._path_results = queue.Queue()
@@ -61,7 +60,6 @@ class PreviewApplication:
         self.hotkey_status = tk.StringVar(value='Shortcut not enabled')
         self.search_hotkey_status = tk.StringVar(value='Search shortcut starting…')
         self.combo = tk.StringVar(value=context.config.current.hotkey)
-        self.search_combo = tk.StringVar(value=context.config.current.search_hotkey)
         self.enabled = tk.BooleanVar(value=context.config.current.hotkey_enabled)
         self.autostart = tk.BooleanVar(value=False)
         self._build_main()
@@ -83,7 +81,7 @@ class PreviewApplication:
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
             self._configure_hotkey()
-            self._configure_search_hotkey()
+            self._start_search_hotkey()
         self.root.after(25, self._poll)
         self.root.after_idle(self._clamp_main)
 
@@ -149,18 +147,8 @@ class PreviewApplication:
         for button in (self.record_button,self.apply_button,self.reset_button):
             button.pack(side='left',padx=(0,8))
         ttk.Label(settings,text='Ctrl or Alt, with optional Shift; letters, digits, Space, F1–F11.',style='Card.TLabel',wraplength=560).pack(anchor='w',pady=(8,0))
-        search_shortcut_row = ttk.Frame(settings, style='Card.TFrame')
-        search_shortcut_row.pack(fill='x', pady=(12, 0))
-        ttk.Label(search_shortcut_row, text='Search shortcut:', style='Card.TLabel').pack(side='left')
-        self.search_combo_entry = ttk.Entry(search_shortcut_row, textvariable=self.search_combo, state='readonly')
-        self.search_combo_entry.pack(side='left', fill='x', expand=True, padx=8)
-        self.search_record_button = ttk.Button(search_shortcut_row, text='Record', command=self._record_search)
-        self.search_record_button.pack(side='left')
-        self.search_apply_button = ttk.Button(search_shortcut_row, text='Apply', command=self._apply_search_hotkey)
-        self.search_apply_button.pack(side='left', padx=(8, 0))
-        self.search_combo_entry.bind('<KeyPress>', self._capture)
-        ttk.Label(settings, textvariable=self.search_hotkey_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w', pady=(4, 0))
+        ttk.Label(settings, text='Search shortcut: Ctrl+Alt+F (fixed). Select a folder in File Explorer first.',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(12, 0))
         integration=self._card(content,'System integration')
         ttk.Checkbutton(integration,text='Start when signing in to Windows',variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
         self.path_button=ttk.Button(integration,text='Add to PATH',command=self._add_path)
@@ -294,25 +282,16 @@ class PreviewApplication:
     def _record(self):
         """Capture only focused Tk key events, never install a global keyboard hook."""
         self._record_original=self.combo.get()
-        self._record_target = 'preview'
         self._recording=True
         self.status.set('Press a key combination; Esc to cancel.')
         self.combo_entry.focus_set()
-
-    def _record_search(self):
-        """Begin recording the separate Explorer search shortcut."""
-        self._record_original = self.search_combo.get()
-        self._record_target = 'search'
-        self._recording = True
-        self.status.set('Press a search shortcut; Esc to cancel.')
-        self.search_combo_entry.focus_set()
 
     def _capture(self,event):
         """Normalize a complete keyboard chord and leave it as an unsaved draft."""
         if not self._recording:
             return
         if event.keysym=='Escape':
-            (self.search_combo if self._record_target == 'search' else self.combo).set(self._record_original)
+            self.combo.set(self._record_original)
             self._recording=False
             return 'break'
         if event.keysym in ('Control_L','Control_R','Alt_L','Alt_R','Shift_L','Shift_R'):
@@ -327,8 +306,7 @@ class PreviewApplication:
         if event.state&1: tokens.append('Shift')
         key='Space' if event.keysym=='space' else event.keysym
         try:
-            target = self.search_combo if self._record_target == 'search' else self.combo
-            target.set(parse_hotkey('+'.join(tokens+[key])).canonical)
+            self.combo.set(parse_hotkey('+'.join(tokens+[key])).canonical)
             self._recording=False
             self.status.set('Recorded. Click Apply to activate.')
         except OffLookError as exc:
@@ -337,8 +315,7 @@ class PreviewApplication:
 
     def _settings_busy(self,busy):
         """Prevent overlapping shortcut transactions."""
-        for widget in (self.enable_control,self.record_button,self.apply_button,self.reset_button,
-                       self.search_record_button,self.search_apply_button):
+        for widget in (self.enable_control,self.record_button,self.apply_button,self.reset_button):
             widget.state(['disabled'] if busy else ['!disabled'])
 
     def _apply_hotkey(self):
@@ -350,27 +327,22 @@ class PreviewApplication:
         except OffLookError as exc:
             self.status.set(str(exc))
 
-    def _apply_search_hotkey(self):
-        """Validate and register the separate Explorer search shortcut."""
-        try:
-            desired = replace(self.context.config.current, search_hotkey=parse_hotkey(self.search_combo.get()).canonical)
-            self._begin_search_hotkey(desired, persist=True)
-        except OffLookError as exc:
-            self.status.set(str(exc))
-
     def _configure_hotkey(self):
         """Honor an externally changed config without writing it a second time."""
         self._begin_hotkey(self.context.config.current,persist=False)
-
-    def _configure_search_hotkey(self):
-        """Honor an externally changed search shortcut without writing it again."""
-        self._begin_search_hotkey(self.context.config.current, persist=False)
 
     def _config_changed(self,event):
         """Avoid recursive registration from synchronous config.changed callbacks."""
         if self.resident and not self._hotkey_transaction_active:
             self._configure_hotkey()
-            self._configure_search_hotkey()
+
+    def _start_search_hotkey(self):
+        """Register the fixed Explorer folder-search shortcut."""
+        if self.search_listener is not None or self.closing:
+            return
+        from offlook.platforms.windows_hotkey import HotkeyListener
+        self.search_listener = HotkeyListener('Ctrl+Alt+F')
+        self.search_listener.start()
 
     def _retire(self,listener):
         """Keep stopped listeners referenced until unregister errors are consumed."""
@@ -405,8 +377,6 @@ class PreviewApplication:
         self._settings_busy(False)
         self.combo.set(self.context.config.current.hotkey)
         self.enabled.set(self.context.config.current.hotkey_enabled)
-        if self.resident and self.search_listener is None and self._pending_search_listener is None:
-            self._configure_search_hotkey()
 
     def _commit_hotkey(self):
         """Save before swapping; a failed save cannot disable the previous shortcut."""
@@ -423,40 +393,6 @@ class PreviewApplication:
             self.status.set(str(exc))
         finally:
             self._finish_hotkey()
-
-    def _begin_search_hotkey(self, desired, *, persist):
-        """Register the separate global shortcut used to open folder search."""
-        if self._hotkey_transaction_active or self.closing:
-            return
-        active = self.search_listener
-        if active is not None and not active.is_stopped and active.combo == desired.search_hotkey:
-            return
-        self._hotkey_transaction_active = True
-        self._settings_busy(True)
-        self._pending_config = desired
-        self._pending_persist = persist
-        from offlook.platforms.windows_hotkey import HotkeyListener
-        self._pending_search_listener = HotkeyListener(desired.search_hotkey)
-        self._pending_search_listener.start()
-
-    def _commit_search_hotkey(self):
-        """Persist a tested search shortcut before replacing the old listener."""
-        try:
-            if self._pending_persist:
-                self.context.config.update(self._pending_config, persist=True)
-            self._retire(self.search_listener)
-            self.search_listener = self._pending_search_listener
-            self.search_hotkey_status.set(f'Search shortcut ready: {self.search_listener.combo}')
-            self.status.set(f'Search shortcut applied: {self.search_listener.combo}')
-        except OffLookError as exc:
-            self._retire(self._pending_search_listener)
-            self.status.set(str(exc))
-        finally:
-            self._pending_search_listener = self._pending_config = None
-            self._pending_persist = False
-            self._hotkey_transaction_active = False
-            self._settings_busy(False)
-            self.search_combo.set(self.context.config.current.search_hotkey)
 
     def _add_path(self):
         """Run add-only user PATH registration away from the Tk thread."""
@@ -519,13 +455,7 @@ class PreviewApplication:
         self.runner.submit(SelectionRequest(self.generation,hwnd,self.context.config.current))
 
     def _search_hotkey(self, hwnd):
-        """Resolve the selected Explorer file and open its parent folder in Search files."""
-        import win32gui
-        if self._recording and hwnd == win32gui.GetAncestor(self.root.winfo_id(), 2):
-            self.search_combo.set(self.search_listener.combo)
-            self._recording = False
-            self.status.set('Search shortcut recorded. Click Apply to activate.')
-            return
+        """Resolve the selected Explorer folder and open it in Search files."""
         if not hwnd or self.closing:
             return
         from offlook.platforms.windows_selection import SelectionRequest
@@ -533,7 +463,9 @@ class PreviewApplication:
         self.selection_hwnd = hwnd
         self.selection_mode = 'search'
         self.search_hotkey_status.set('Search shortcut pressed; reading the selected Explorer file…')
-        self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current))
+        self.runner.submit(SelectionRequest(
+            self.generation, hwnd, self.context.config.current, for_search=True
+        ))
 
     def _poll(self):
         """Consume native events and worker results only on the owning Tk thread."""
@@ -565,19 +497,6 @@ class PreviewApplication:
                     self.status.set(f"{event['message']}; settings not applied. Still using: {active_text}")
                     self._retire(pending)
                     self._finish_hotkey()
-        pending_search = self._pending_search_listener
-        if pending_search and not self.closing:
-            for event in pending_search.poll():
-                if self._pending_search_listener is not pending_search:
-                    break
-                if event['type'] == 'ready':
-                    self._commit_search_hotkey()
-                elif event['type'] == 'error':
-                    self.status.set(f"{event['message']}; search shortcut not changed")
-                    self._retire(pending_search)
-                    self._pending_search_listener = self._pending_config = None
-                    self._hotkey_transaction_active = False
-                    self._settings_busy(False)
         for listener in self._retiring_listeners[:]:
             for event in listener.poll():
                 if event['type']=='error': self.status.set(event['message'])
@@ -621,10 +540,11 @@ class PreviewApplication:
                         self.search_hotkey_status.set(result['message'])
                 elif win32gui.GetForegroundWindow()==hwnd and result['data'].path is not None:
                     if self.selection_mode == 'search':
-                        self.search_folder.set(str(result['data'].path.parent))
+                        self.search_folder.set(str(result['data'].path))
                         self.search_status.set('Folder selected from File Explorer. Enter a filename or choose a type, then click Search.')
                         self._show()
-                        self._focus_search()
+                        self.search_entry.focus_set()
+                        self.search_entry.selection_range(0, 'end')
                     else:
                         self.open(result['data'].path)
                 self.selection_mode = None
@@ -639,7 +559,7 @@ class PreviewApplication:
                     if not self._preview_opened:
                         self._preview_opened=True
                         self.context.events.publish('preview.opened',{'file_info':result['data'].file_info})
-        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,self._pending_search_listener,*self._retiring_listeners] if item]
+        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,*self._retiring_listeners] if item]
         if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()):
             self.root.destroy()
             return
@@ -662,7 +582,7 @@ class PreviewApplication:
         self.close_preview(exiting=False)
         self.unsubscribe()
         self.runner.close()
-        for listener in [self.listener,self._pending_listener,self.search_listener,self._pending_search_listener,*self._retiring_listeners]:
+        for listener in [self.listener,self._pending_listener,self.search_listener,*self._retiring_listeners]:
             if listener: listener.stop()
         if self.tray: self.tray.stop()
         if self.help_window and self.help_window.winfo_exists(): self.help_window.destroy()
