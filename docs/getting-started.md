@@ -37,19 +37,32 @@ Click **Choose file**, or replace the README path in the CLI example with an exi
 
 The **Search files** card searches a selected local folder and its subfolders without reading file contents. Enter an optional filename fragment, choose a document type, and click **Search**; it includes common Word (`.doc`, `.docx`), Excel (`.xls`, `.xlsx`), PowerPoint, and OpenDocument files. **Other / unknown** finds extensions outside the listed categories. Double-click a result to preview it. Links and network folders are not traversed.
 
-In File Explorer, open or select a local folder and press the fixed **Ctrl+Q** shortcut to load that folder into Search files. The existing `Ctrl+Space` shortcut remains reserved for previewing a selected file.
+In File Explorer, select one local folder, or open a local folder with nothing selected, and press the **Search files** shortcut (default: **Ctrl+Q**). OffLook loads that folder, scrolls the Search files card into view, and focuses the filename field. It does not search until you click **Search**. A selected regular file or multiple items produces an error; OffLook does not silently use a file's parent folder.
 
-The separate **Git comparison** card compares a tracked text file with its latest committed Git version. Click **Compare with Git HEAD**, or select the file in File Explorer and press **Ctrl+Alt+D**. The comparison window highlights added, deleted, and modified lines. Git comparison supports UTF-8 text files up to 2 MiB.
+The separate **Git comparison** card compares a tracked text file with its latest committed Git version. Click **Compare with Git HEAD**, or select the file in File Explorer and press the **Git comparison** shortcut (default: **Ctrl+Alt+D**). The comparison window highlights added, deleted, and modified lines. Git comparison supports UTF-8 text files up to 2,000,000 bytes.
 
-To diagnose the Explorer shortcut without opening the GUI, run `py -m offlook diagnose-search-shortcut`. Select exactly one local folder in File Explorer and press **Ctrl+Q**. The diagnostic reports whether OffLook registered and detected the shortcut and whether the selected folder was confirmed.
+To diagnose the configured Search files shortcut without opening the GUI, first exit the main app and any other instance using that key, then run:
 
-## 4. Customize the shortcut
+```powershell
+py -m offlook diagnose-search-shortcut
+py -m offlook --config '<path>' diagnose-search-shortcut
+```
 
-Keep OffLook running, select one file in File Explorer or on the desktop, and press the default Ctrl+Space shortcut to preview it.
-Click **Record shortcut** in the main window, press a new combination, then click **Apply**. Esc cancels recording. **Reset default** also requires **Apply** to take effect.
+Use the second form with your actual configuration path to test a custom key. The diagnostic prints the configured combination, reports registration and detection, and checks the selected local folder (or the current local folder when nothing is selected). It keeps listening after selection errors. It tests the saved search key even when **Enable global shortcuts** is off, without changing the file or switch; Ctrl+C stops it with exit code 0. An explicitly specified missing or invalid configuration reports an error and exits with code 2 rather than falling back to defaults.
 
-Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Space, or F1–F11. The Windows key, F12, and reserved combinations such as Alt+F4 and Alt+Space are not supported. The old shortcut is kept if registration or saving fails.
-Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the configuration file explicitly specified on the CLI. Older files without a hotkey field use Ctrl+Space.
+## 4. Customize global shortcuts
+
+Keep OffLook running, select one file in File Explorer or on the desktop, and press the **Preview** shortcut (default: **Ctrl+Space**) to preview it. Pressing its shortcut again over that preview closes it. Search files and Git comparison have separate configurable keys; the three combinations above are defaults, not reserved keys.
+
+In **Shortcut settings**, choose exactly one action: **Preview**, **Search files**, or **Git comparison**. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft, so switching away and back preserves completed edits without saving them. Esc cancels recording; switching actions also cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an already-active key over the main window captures it without executing its feature.
+
+**Enable global shortcuts** applies immediately to all three actions, independently of the selected-key Apply button. Disabling releases every global key without disabling manual preview, search, or comparison controls. Enabling attempts all three saved keys independently; an occupied key makes only that action **Unavailable**. Controls are temporarily disabled while registrations settle.
+
+Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Space, or F1–F11. The Windows key, F12, and reserved combinations such as Alt+F4 and Alt+Space are not supported. All three saved combinations must be different, even while global shortcuts are disabled. A default key can be assigned to a different action after its previous owner is saved with a distinct key.
+
+The cards and open Help window show actual active keys, or **Disabled**, **Registering**, or **Unavailable** with the configured key and reason. If registration or saving fails, the old active key remains and the proposed draft stays available for retry. Release an occupied key in the other application, then click Apply again, or choose a different combination. If external configuration changes request a swap of active keys, use an intermediate unused combination to release the old key; OffLook does not silently unregister both actions to swap them.
+
+Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the configuration file explicitly specified on the CLI. Older files missing shortcut fields use their defaults without being rewritten just by loading. A file with invalid or duplicate combinations is an explicit configuration error; correct the named fields rather than expecting a silent reset. The single-file `preview` CLI command does not register global shortcuts.
 
 ## 5. Background mode, startup, and Help
 
@@ -60,7 +73,7 @@ Enable **Start when signing in to Windows** to launch in the background the next
 py -m offlook --background
 ```
 
-The **Help** button or F1 opens the offline guide. If the shortcut does not respond, check that OffLook is running, exactly one local file is selected, and File Explorer is in the foreground. An input method may reserve the combination; change the shortcut or select the file manually.
+The **Help** button or F1 opens the offline guide with live status for all three shortcuts. If a shortcut does not respond, check its status, that OffLook is running, and that File Explorer is in the foreground. Preview and Git comparison require one selected file; Search files accepts one selected folder or the current folder with nothing selected. An input method may reserve a combination; change it or use the manual controls.
 
 ## Optional: manual PATH troubleshooting
 

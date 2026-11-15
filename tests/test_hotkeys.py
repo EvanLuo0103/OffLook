@@ -72,21 +72,39 @@ class HotkeyConfigTests(unittest.TestCase):
     """Keep old JSON compatible and invalid drafts away from the saved configuration."""
 
     def test_old_json_defaults_without_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "config.json"
-            old = '{"hotkey_enabled": true, "always_on_top": false}'
-            path.write_text(old, encoding="utf-8")
-            self.assertEqual(ConfigManager(path).load().hotkey, "Ctrl+Space")
-            self.assertEqual(path.read_text(encoding="utf-8"), old)
+        for values in (
+            {"hotkey_enabled": True, "always_on_top": False},
+            {"hotkey_enabled": False, "hotkey": "Alt+P"},
+        ):
+            with self.subTest(values=values), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "config.json"
+                old = json.dumps(values).encode("utf-8")
+                path.write_bytes(old)
+                config = ConfigManager(path).load()
+                self.assertEqual(config.hotkey, values.get("hotkey", "Ctrl+Space"))
+                self.assertEqual(config.search_hotkey, "Ctrl+Q")
+                self.assertEqual(config.diff_hotkey, "Ctrl+Alt+D")
+                self.assertEqual(path.read_bytes(), old)
 
     def test_canonical_shortcut_roundtrips(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
             manager = ConfigManager(path)
-            config = replace(manager.current, hotkey=" shift + CTRL + p ")
+            config = replace(
+                manager.current,
+                hotkey=" shift + CTRL + p ",
+                search_hotkey=" alt + ctrl + s ",
+                diff_hotkey=" shift + alt + d ",
+            )
             manager.update(config, persist=True)
-            self.assertEqual(config.hotkey, "Ctrl+Shift+P")
-            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["hotkey"], "Ctrl+Shift+P")
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            for field, canonical in (
+                ("hotkey", "Ctrl+Shift+P"),
+                ("search_hotkey", "Ctrl+Alt+S"),
+                ("diff_hotkey", "Alt+Shift+D"),
+            ):
+                self.assertEqual(getattr(config, field), canonical)
+                self.assertEqual(saved[field], canonical)
             self.assertEqual(ConfigManager(path).load(), config)
 
     def test_invalid_shortcut_cannot_replace_saved_config(self) -> None:
@@ -96,12 +114,14 @@ class HotkeyConfigTests(unittest.TestCase):
             config = PreviewConfig(hotkey="Ctrl+Alt+P")
             manager.update(config, persist=True)
             saved = path.read_bytes()
-            with self.assertRaises(ConfigError) as caught:
-                manager.update(replace(config, hotkey="Win+P"), persist=True)
-            self.assertIsInstance(caught.exception.__cause__, HotkeyError)
-            self.assertEqual(manager.current, config)
-            self.assertEqual(path.read_bytes(), saved)
-            self.assertEqual(ConfigManager(path).load(), config)
+            for field in ("hotkey", "search_hotkey", "diff_hotkey"):
+                with self.subTest(field=field), self.assertRaises(ConfigError) as caught:
+                    manager.update(replace(config, **{field: "Win+P"}), persist=True)
+                self.assertIsInstance(caught.exception.__cause__, HotkeyError)
+                self.assertIn(field, str(caught.exception))
+                self.assertEqual(manager.current, config)
+                self.assertEqual(path.read_bytes(), saved)
+                self.assertEqual(ConfigManager(path).load(), config)
 
     def test_invalid_json_shortcut_retains_current_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -109,7 +129,81 @@ class HotkeyConfigTests(unittest.TestCase):
             manager = ConfigManager(path)
             config = PreviewConfig(hotkey="Alt+P")
             manager.update(config)
-            path.write_text('{"hotkey": "F12"}', encoding="utf-8")
-            with self.assertRaises(ConfigError):
-                manager.load()
-            self.assertEqual(manager.current, config)
+            for field in ("hotkey", "search_hotkey", "diff_hotkey"):
+                with self.subTest(field=field):
+                    invalid = json.dumps({field: "F12"}).encode("utf-8")
+                    path.write_bytes(invalid)
+                    with self.assertRaises(ConfigError) as caught:
+                        manager.load()
+                    self.assertIsInstance(caught.exception.__cause__, HotkeyError)
+                    self.assertIn(field, str(caught.exception))
+                    self.assertEqual(manager.current, config)
+                    self.assertEqual(path.read_bytes(), invalid)
+
+    def test_pairwise_duplicates_never_replace_or_save_config(self) -> None:
+        pairs = (
+            ("hotkey", "search_hotkey"),
+            ("hotkey", "diff_hotkey"),
+            ("search_hotkey", "diff_hotkey"),
+        )
+        for enabled in (True, False):
+            for first, second in pairs:
+                with self.subTest(enabled=enabled, fields=(first, second)):
+                    with tempfile.TemporaryDirectory() as directory:
+                        path = Path(directory) / "config.json"
+                        manager = ConfigManager(path)
+                        config = replace(manager.current, hotkey_enabled=enabled)
+                        manager.update(config, persist=True)
+                        saved = path.read_bytes()
+                        changes = {first: "shift + ctrl + p", second: "CTRL+SHIFT+P"}
+                        message = (
+                            "Shortcut combinations must be different: "
+                            f"{first} and {second} both use Ctrl+Shift+P"
+                        )
+                        with self.assertRaises(ConfigError) as caught:
+                            manager.update(replace(config, **changes), persist=True)
+                        self.assertEqual(str(caught.exception), message)
+                        self.assertEqual(manager.current, config)
+                        self.assertEqual(path.read_bytes(), saved)
+                        self.assertEqual(ConfigManager(path).load(), config)
+
+    def test_legacy_duplicate_json_names_conflicting_fields_without_reset(self) -> None:
+        for first, second in (
+            ("hotkey", "search_hotkey"),
+            ("hotkey", "diff_hotkey"),
+            ("search_hotkey", "diff_hotkey"),
+        ):
+            for enabled in (True, False):
+                with self.subTest(enabled=enabled, fields=(first, second)):
+                    with tempfile.TemporaryDirectory() as directory:
+                        path = Path(directory) / "config.json"
+                        manager = ConfigManager(path)
+                        previous = manager.current
+                        invalid = json.dumps({
+                            "hotkey_enabled": enabled,
+                            first: "alt + shift + p",
+                            second: "SHIFT+ALT+P",
+                        }).encode("utf-8")
+                        path.write_bytes(invalid)
+                        with self.assertRaises(ConfigError) as caught:
+                            manager.load()
+                        self.assertEqual(
+                            str(caught.exception),
+                            "Shortcut combinations must be different: "
+                            f"{first} and {second} both use Alt+Shift+P",
+                        )
+                        self.assertEqual(manager.current, previous)
+                        self.assertEqual(path.read_bytes(), invalid)
+
+    def test_default_combinations_can_move_to_another_action(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            manager = ConfigManager(path)
+            config = replace(
+                manager.current,
+                hotkey="Ctrl+Q",
+                search_hotkey="Ctrl+Alt+D",
+                diff_hotkey="Ctrl+Space",
+            )
+            manager.update(config, persist=True)
+            self.assertEqual(ConfigManager(path).load(), config)

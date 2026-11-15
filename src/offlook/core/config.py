@@ -29,6 +29,7 @@ class PreviewConfig:
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
     search_hotkey: str = "Ctrl+Q"
+    diff_hotkey: str = "Ctrl+Alt+D"
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
@@ -36,16 +37,18 @@ class PreviewConfig:
             raise ConfigError("max_file_size_bytes must be a positive integer (bytes)")
         if type(self.hotkey_enabled) is not bool or type(self.always_on_top) is not bool:
             raise ConfigError("hotkey_enabled and always_on_top must be booleans")
-        try:
-            canonical_hotkey = parse_hotkey(self.hotkey).canonical
-        except HotkeyError as exc:
-            raise ConfigError(f"Invalid hotkey setting: {exc}") from exc
-        object.__setattr__(self, "hotkey", canonical_hotkey)
-        try:
-            search_hotkey = parse_hotkey(self.search_hotkey).canonical
-        except HotkeyError as exc:
-            raise ConfigError(f"Invalid search hotkey setting: {exc}") from exc
-        object.__setattr__(self, "search_hotkey", search_hotkey)
+        names = ("hotkey", "search_hotkey", "diff_hotkey")
+        for name in names:
+            try:
+                canonical = parse_hotkey(getattr(self, name)).canonical
+            except HotkeyError as exc:
+                raise ConfigError(f"Invalid {name} setting: {exc}") from exc
+            object.__setattr__(self, name, canonical)
+        for index, first in enumerate(names):
+            for second in names[index + 1:]:
+                combo = getattr(self, first)
+                if combo == getattr(self, second):
+                    raise ConfigError(f"Shortcut combinations must be different: {first} and {second} both use {combo}")
         timeout = self.preview_timeout_seconds
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ConfigError("preview_timeout_seconds must be a finite positive number (seconds)")

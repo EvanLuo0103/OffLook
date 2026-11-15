@@ -22,26 +22,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     preview.add_argument('--topmost', action='store_const', const=True, default=None)
     commands.add_parser(
         'diagnose-search-shortcut',
-        help='Test Ctrl+Q registration and the selected Explorer folder',
+        help='Test the configured search shortcut and Explorer folder selection',
     )
     args = parser.parse_args(argv)
     if args.background and args.command is not None:
-        parser.error('--background cannot be combined with preview')
+        parser.error('--background cannot be combined with a subcommand')
     if sys.platform != 'win32':
         print('OffLook currently supports Windows only', file=sys.stderr)
         return 2
     if args.command == 'preview' and not args.filepath.strip():
         parser.error('File path cannot be empty')
     multiprocessing.freeze_support()
-    if args.command == 'diagnose-search-shortcut':
-        from offlook.diagnostics import run_search_shortcut_diagnostic
-        return run_search_shortcut_diagnostic()
     from offlook.core.context import create_context
     from offlook.core.errors import OffLookError
     try:
+        context = create_context(args.config)
+        if args.command == 'diagnose-search-shortcut':
+            from offlook.diagnostics import run_search_shortcut_diagnostic
+            return run_search_shortcut_diagnostic(context.config.current.search_hotkey)
         from tkinter import TclError
         from offlook.gui import PreviewApplication
-        context = create_context(args.config)
         if args.background and Path(sys.executable).name.lower() != 'pythonw.exe':
             pythonw = Path(sys.executable).with_name('pythonw.exe')
             if not pythonw.is_file():
