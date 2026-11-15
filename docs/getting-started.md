@@ -62,8 +62,15 @@ py -m offlook --background
 
 The **Help** button or F1 opens the offline guide. If the shortcut does not respond, check that OffLook is running, exactly one local file is selected, and File Explorer is in the foreground. An input method may reserve the combination; change the shortcut or select the file manually.
 
-## Optional: manual PATH troubleshooting
+## 6. Convert, filter, and use AI
 
+**Convert files**: select one or more files in File Explorer and press **Alt+C** (change it in **Shortcut settings**) to open the format wheel, then choose a target. Alternatively click **Choose files to convert**. Output files appear next to the sources and never overwrite existing files.
+
+**Filter files**: in the **Filter files** card, choose a folder and check any combination of formats, then click **Apply filter** to list matching files recursively.
+
+**AI assistant**: enable it, enter an OpenAI-compatible base URL (e.g. `https://api.deepseek.com`), a model (e.g. `deepseek-chat`), and your API key, then click **Save AI settings**. Type an instruction such as "move all PDF files in D:\Docs to D:\Archive" and click **Run with AI**. This is the only network feature: requests go only to the endpoint you configured, and the assistant acts on local files through OffLook's list/filter/move/copy/organize tools.
+
+## Optional: manual PATH troubleshooting
 If the UI is unavailable, run the same service from the project root:
 
 ```powershell

@@ -18,6 +18,14 @@ from offlook.core import FileKind, find_files
 results = find_files("C:/Documents", filename="report", kind=FileKind.PDF)
 ```
 
+`filter_files` is the multi-select companion: pass a collection of `kinds` and/or
+`extensions` to match any of several categories at once.
+
+```python
+from offlook.core import FileKind, filter_files
+results = filter_files("C:/Documents", kinds=[FileKind.PDF, FileKind.IMAGE])
+```
+
 FileInfo contains path, kind, size_bytes, modified_time_ns, extension, encoding, and encoding_confidence. Detection synchronously reads up to 64 KiB and accepts only local regular files. Kinds are image/text/markdown/pdf/code/csv/binary; the binary classification does not mean binary contents will be displayed.
 
 ## Open a preview
@@ -55,8 +63,10 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | max_file_size_bytes | 10,485,760 bytes |
 | preview_timeout_seconds | 5 seconds |
 | hotkey_enabled / hotkey | True / Ctrl+Space; the UI registers before saving |
+| search_hotkey / convert_hotkey | Ctrl+Q / Alt+C (the conversion wheel shortcut) |
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
+| ai_enabled / ai_base_url / ai_api_key / ai_model | False / https://api.deepseek.com / "" / deepseek-chat |
 
 `events.subscribe(topic, callback)` returns an unsubscribe function. The callback receives Event(topic, payload) synchronously on the publishing thread.
 
@@ -66,6 +76,55 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | preview.requested / preview.closed | path |
 | preview.opened | file_info, once for the first frame |
 | preview.failed | path, code, message |
+
+## Convert, filter, and manage files
+
+Conversion runs locally with Pillow and pypdfium2. `convert_file` converts one
+source; `convert_files` converts several and, when the target is PDF and every
+source is an image, combines them into one document. Outputs are written next to
+the source (or into the directory you pass) and never overwrite existing files.
+
+```python
+from offlook.core import convert_file, convert_files, reachable_targets, target_formats
+print(target_formats())                # every canonical target suffix
+print(reachable_targets(["a.png"]))    # targets that source can actually reach
+outcome = convert_file("a.png", "pdf")
+print(outcome.outputs)
+```
+
+Word/Excel conversion uses the optional `python-docx` and `openpyxl` packages and
+raises a clear `ConversionError` when they are missing. Safe file management is
+in `offlook.core.file_ops`:
+
+```python
+from offlook.core import move_files, organize_by_kind, FileKind
+results = move_files(["a.pdf"], "C:/Archive")            # archive files
+results = organize_by_kind("C:/Docs", "C:/Archive", kinds=[FileKind.PDF])
+```
+
+## AI assistant port
+
+The assistant is opt-in. It is provider-neutral; the built-in
+`OpenAiCompatibleProvider` talks to any OpenAI-compatible `/chat/completions`
+endpoint (DeepSeek, OpenAI, and many self-hosted servers) using only the
+standard library.
+
+```python
+from offlook.core import OpenAiCompatibleProvider, run_instruction, default_tools
+provider = OpenAiCompatibleProvider("https://api.deepseek.com", "your-key", "deepseek-chat")
+result = run_instruction("move all PDFs in D:/Docs to D:/Archive", provider=provider, tools=default_tools())
+print(result.answer)
+for step in result.steps:
+    print(step.name, step.arguments, step.result, step.error)
+```
+
+`run_instruction` runs synchronously on the caller's thread — call it from a
+worker, never a Tk callback. The built-in tools are `list_files`, `filter_files`,
+`move_files`, `copy_files`, and `organize_by_kind`; each validates local
+drive-letter paths and returns bounded, JSON-serializable results. Subclass
+`AiProvider` to support non-OpenAI APIs, and build a custom `AiToolRegistry` to
+expose your own local operations. No network request is made unless the
+assistant is explicitly run.
 
 ## Extend renderers
 

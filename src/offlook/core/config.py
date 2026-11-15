@@ -29,13 +29,18 @@ class PreviewConfig:
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
     search_hotkey: str = "Ctrl+Q"
+    convert_hotkey: str = "Alt+C"
+    ai_enabled: bool = False
+    ai_base_url: str = "https://api.deepseek.com"
+    ai_api_key: str = ""
+    ai_model: str = "deepseek-chat"
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
         if type(self.max_file_size_bytes) is not int or self.max_file_size_bytes <= 0:
             raise ConfigError("max_file_size_bytes must be a positive integer (bytes)")
-        if type(self.hotkey_enabled) is not bool or type(self.always_on_top) is not bool:
-            raise ConfigError("hotkey_enabled and always_on_top must be booleans")
+        if type(self.hotkey_enabled) is not bool or type(self.always_on_top) is not bool or type(self.ai_enabled) is not bool:
+            raise ConfigError("hotkey_enabled, always_on_top, and ai_enabled must be booleans")
         try:
             canonical_hotkey = parse_hotkey(self.hotkey).canonical
         except HotkeyError as exc:
@@ -46,6 +51,21 @@ class PreviewConfig:
         except HotkeyError as exc:
             raise ConfigError(f"Invalid search hotkey setting: {exc}") from exc
         object.__setattr__(self, "search_hotkey", search_hotkey)
+        try:
+            convert_hotkey = parse_hotkey(self.convert_hotkey).canonical
+        except HotkeyError as exc:
+            raise ConfigError(f"Invalid convert hotkey setting: {exc}") from exc
+        object.__setattr__(self, "convert_hotkey", convert_hotkey)
+        if not isinstance(self.ai_base_url, str) or not self.ai_base_url.strip():
+            raise ConfigError("ai_base_url must be a nonblank HTTP(S) URL")
+        ai_base_url = self.ai_base_url.strip().rstrip("/")
+        if not (ai_base_url.startswith("http://") or ai_base_url.startswith("https://")):
+            raise ConfigError("ai_base_url must start with http:// or https://")
+        object.__setattr__(self, "ai_base_url", ai_base_url)
+        if not isinstance(self.ai_api_key, str):
+            raise ConfigError("ai_api_key must be a string")
+        if not isinstance(self.ai_model, str) or not self.ai_model.strip():
+            raise ConfigError("ai_model must be a nonblank string")
         timeout = self.preview_timeout_seconds
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ConfigError("preview_timeout_seconds must be a finite positive number (seconds)")

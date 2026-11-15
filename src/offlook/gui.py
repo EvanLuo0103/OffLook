@@ -12,6 +12,7 @@ from offlook.core.errors import OffLookError
 from offlook.core.hotkeys import parse_hotkey
 from offlook.preview.models import RenderRequest
 from offlook.preview.worker import WorkerRunner
+from offlook.ui.theme import COLORS
 
 
 class PreviewApplication:
@@ -44,12 +45,23 @@ class PreviewApplication:
         self._hotkey_transaction_active = False
         self._recording = False
         self._record_original = ''
+        self._recording_convert = False
+        self._convert_original = ''
         self._path_thread = None
         self._path_results = queue.Queue()
         self._search_thread = None
         self._search_results = queue.Queue()
         self._diff_results = queue.Queue()
         self._diff_thread = None
+        self._filter_thread = None
+        self._filter_results = queue.Queue()
+        self._convert_thread = None
+        self._convert_results = queue.Queue()
+        self._ai_thread = None
+        self._ai_results = queue.Queue()
+        self.convert_listener = None
+        self.convert_wheel = None
+        self._convert_paths = ()
         self.diff_window = None
         self.preview = self.path = None
         self._preview_config = None
@@ -116,6 +128,13 @@ class PreviewApplication:
         self.diff_status = tk.StringVar(value='Select a tracked text file to compare with Git HEAD.')
         ttk.Label(comparison, textvariable=self.diff_status, style='Card.Muted.TLabel',
                   wraplength=560).pack(anchor='w', pady=(6, 0))
+        conversion = self._card(content, 'Convert files')
+        ttk.Button(conversion, text='Choose files to convert', command=self._choose_convert_files).pack(anchor='w', pady=8)
+        ttk.Label(conversion, text='Shortcut: Alt+C in File Explorer on one or more selected files.',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        self.convert_status = tk.StringVar(value='Select files, then pick a target format from the wheel.')
+        ttk.Label(conversion, textvariable=self.convert_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w', pady=(6, 0))
         search = self._card(content, 'Search files')
         search_row = ttk.Frame(search, style='Card.TFrame')
         search_row.pack(fill='x', pady=4)
@@ -144,6 +163,70 @@ class PreviewApplication:
         ttk.Label(search, textvariable=self.search_status, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
         ttk.Label(search, text='Explorer shortcut: select a folder and press Ctrl+Q.',
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(2, 0))
+        filter_card = self._card(content, 'Filter files')
+        filter_row = ttk.Frame(filter_card, style='Card.TFrame')
+        filter_row.pack(fill='x', pady=4)
+        ttk.Button(filter_row, text='Choose folder', command=self._choose_filter_folder).pack(side='left')
+        self.filter_folder = tk.StringVar()
+        ttk.Label(filter_card, textvariable=self.filter_folder, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        from offlook.core import FileKind
+        filter_options = (
+            ('Images', FileKind.IMAGE), ('PDF', FileKind.PDF), ('Text', FileKind.TEXT),
+            ('Markdown', FileKind.MARKDOWN), ('Code', FileKind.CODE), ('CSV', FileKind.CSV),
+            ('Documents', FileKind.DOCUMENT), ('Other', FileKind.BINARY),
+        )
+        self.filter_vars = {}
+        checkbox_grid = ttk.Frame(filter_card, style='Card.TFrame')
+        checkbox_grid.pack(fill='x', pady=4)
+        for index, (label, kind) in enumerate(filter_options):
+            variable = tk.BooleanVar(value=False)
+            self.filter_vars[kind] = variable
+            ttk.Checkbutton(checkbox_grid, text=label, variable=variable).grid(
+                row=index // 4, column=index % 4, sticky='w', padx=(0, 14), pady=2)
+        self.filter_button = ttk.Button(filter_card, text='Apply filter', command=self._apply_filter)
+        self.filter_button.pack(anchor='w', pady=(4, 8))
+        self.filter_tree = ttk.Treeview(filter_card, columns=('type', 'path'), show='headings', height=6)
+        self.filter_tree.heading('type', text='Type')
+        self.filter_tree.heading('path', text='File')
+        self.filter_tree.column('type', width=90, stretch=False)
+        self.filter_tree.column('path', width=520)
+        self.filter_tree.pack(fill='x')
+        self.filter_tree.bind('<Double-1>', self._open_filter_result)
+        self.filter_status = tk.StringVar(value='Choose a folder and check formats to filter.')
+        ttk.Label(filter_card, textvariable=self.filter_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w', pady=(6, 0))
+        ai_card = self._card(content, 'AI file assistant')
+        self.ai_enabled = tk.BooleanVar(value=self.context.config.current.ai_enabled)
+        ttk.Checkbutton(ai_card, text='Enable AI assistant', variable=self.ai_enabled).pack(anchor='w', pady=4)
+        ai_grid = ttk.Frame(ai_card, style='Card.TFrame')
+        ai_grid.pack(fill='x', pady=4)
+        self.ai_base_url = tk.StringVar(value=self.context.config.current.ai_base_url)
+        self.ai_model = tk.StringVar(value=self.context.config.current.ai_model)
+        self.ai_key = tk.StringVar(value=self.context.config.current.ai_api_key)
+        for row_index, (label_text, variable, show) in enumerate((
+            ('Base URL', self.ai_base_url, None),
+            ('Model', self.ai_model, None),
+            ('API key', self.ai_key, '*'),
+        )):
+            ttk.Label(ai_grid, text=label_text, style='Card.Muted.TLabel', width=10).grid(
+                row=row_index, column=0, sticky='w', pady=3)
+            ttk.Entry(ai_grid, textvariable=variable, show=show or '').grid(
+                row=row_index, column=1, sticky='ew', pady=3)
+        ai_grid.columnconfigure(1, weight=1)
+        ttk.Button(ai_card, text='Save AI settings', command=self._save_ai).pack(anchor='w', pady=(4, 8))
+        ttk.Label(ai_card, text='Instruction (e.g. "move all PDF files in D:\\Docs to D:\\Archive")',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        self.ai_instruction = ttk.Entry(ai_card)
+        self.ai_instruction.pack(fill='x', pady=6)
+        self.ai_run_button = ttk.Button(ai_card, text='Run with AI', command=self._run_ai)
+        self.ai_run_button.pack(anchor='w', pady=(0, 8))
+        self.ai_status = tk.StringVar(value='Connect your own AI (DeepSeek, OpenAI, or any compatible endpoint).')
+        ttk.Label(ai_card, textvariable=self.ai_status, style='Card.Muted.TLabel',
+                  wraplength=560).pack(anchor='w')
+        self.ai_output = tk.Text(ai_card, height=6, wrap='word', relief='flat', borderwidth=0,
+                                 background=COLORS['card'], foreground=COLORS['text'],
+                                 font=self.fonts['body'], state='disabled', padx=4, pady=4)
+        self.ai_output.pack(fill='x', pady=(6, 0))
         settings = self._card(content, 'Shortcut settings')
         self.enable_control = ttk.Checkbutton(settings,text='Enable global shortcut',variable=self.enabled)
         self.enable_control.pack(anchor='w',pady=4)
@@ -158,6 +241,19 @@ class PreviewApplication:
         for button in (self.record_button,self.apply_button,self.reset_button):
             button.pack(side='left',padx=(0,8))
         ttk.Label(settings,text='Ctrl or Alt, with optional Shift; letters, digits, Space, F1–F11.',style='Card.TLabel',wraplength=560).pack(anchor='w',pady=(8,0))
+        ttk.Separator(settings, orient='horizontal').pack(fill='x', pady=12)
+        ttk.Label(settings,text='Convert shortcut (files → format wheel)',style='Card.TLabel').pack(anchor='w')
+        self.convert_combo = tk.StringVar(value=self.context.config.current.convert_hotkey)
+        self.convert_entry = ttk.Entry(settings,textvariable=self.convert_combo,state='readonly',font=self.fonts['body'])
+        self.convert_entry.pack(fill='x',pady=6)
+        self.convert_entry.bind('<KeyPress>', self._capture_convert)
+        convert_row=ttk.Frame(settings,style='Card.TFrame')
+        convert_row.pack(fill='x')
+        self.convert_record_button=ttk.Button(convert_row,text='Record',command=self._record_convert)
+        self.convert_apply_button=ttk.Button(convert_row,text='Apply',command=self._apply_convert)
+        self.convert_reset_button=ttk.Button(convert_row,text='Reset default',command=lambda:self.convert_combo.set('Alt+C'))
+        for button in (self.convert_record_button,self.convert_apply_button,self.convert_reset_button):
+            button.pack(side='left',padx=(0,8))
         integration=self._card(content,'System integration')
         ttk.Checkbutton(integration,text='Start when signing in to Windows',variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
         self.path_button=ttk.Button(integration,text='Add to PATH',command=self._add_path)
@@ -275,6 +371,179 @@ class PreviewApplication:
         selected = self.search_tree.selection()
         if selected:
             self.open(self.search_tree.item(selected[0], 'values')[1])
+
+    def _choose_convert_files(self):
+        """Choose one or more files manually and show the conversion wheel."""
+        paths = filedialog.askopenfilenames(parent=self.root)
+        if paths:
+            self._show_conversion_wheel(paths)
+
+    def _show_conversion_wheel(self, paths):
+        """Offer every reachable target format for the selected files."""
+        from offlook.core import format_label, reachable_targets
+        from offlook.ui.convert_wheel import show_conversion_wheel
+        if self.convert_wheel is not None and self.convert_wheel.winfo_exists():
+            self.convert_wheel.destroy()
+        targets = reachable_targets(paths)
+        if not targets:
+            self.convert_status.set('No conversion is available for the selected files.')
+            self.status.set('No conversion is available for the selected files.')
+            return
+        options = [(extension, format_label(extension)) for extension in targets]
+        self._convert_paths = tuple(Path(path) for path in paths)
+        self._show()
+        self.convert_wheel = show_conversion_wheel(self.root, options, self._start_conversion)
+
+    def _start_conversion(self, target):
+        """Run file conversion away from the Tk thread and report the outcome."""
+        if self._convert_thread and self._convert_thread.is_alive():
+            self.convert_status.set('A conversion is already running.')
+            return
+        paths = self._convert_paths
+        self.convert_status.set(f'Converting {len(paths)} file(s) to {target.lstrip(".").upper()}…')
+        def work():
+            try:
+                from offlook.core import convert_files
+                self._convert_results.put((convert_files(paths, target), None))
+            except OffLookError as exc:
+                self._convert_results.put((None, str(exc)))
+            except Exception as exc:
+                self._convert_results.put((None, f'Conversion failed: {type(exc).__name__}: {exc}'))
+        self._convert_thread = threading.Thread(target=work, name='OffLookConvert', daemon=True)
+        self._convert_thread.start()
+
+    def _choose_filter_folder(self):
+        """Choose the root folder for format filtering."""
+        folder = filedialog.askdirectory(parent=self.root)
+        if folder:
+            self.filter_folder.set(folder)
+            self.filter_status.set('Ready to filter.')
+
+    def _apply_filter(self):
+        """Run multi-format filtering off the Tk thread."""
+        if self._filter_thread and self._filter_thread.is_alive():
+            return
+        folder = self.filter_folder.get().strip()
+        if not folder:
+            self.filter_status.set('Choose a folder first.')
+            return
+        kinds = [kind for kind, variable in self.filter_vars.items() if variable.get()]
+        from offlook.core import filter_files
+        self.filter_button.state(['disabled'])
+        self.filter_status.set('Filtering…')
+        self._filter_thread = threading.Thread(
+            target=self._filter_worker, args=(folder, kinds, filter_files),
+            name='OffLookFilter', daemon=True,
+        )
+        self._filter_thread.start()
+
+    def _filter_worker(self, folder, kinds, filterer):
+        """Return filter results without touching Tk from the worker thread."""
+        try:
+            self._filter_results.put((filterer(folder, kinds=kinds), None))
+        except OffLookError as exc:
+            self._filter_results.put((None, str(exc)))
+        except OSError as exc:
+            self._filter_results.put((None, f'File filtering failed: {exc}'))
+
+    def _open_filter_result(self, _event):
+        """Preview the selected filtered file."""
+        selected = self.filter_tree.selection()
+        if selected:
+            self.open(self.filter_tree.item(selected[0], 'values')[1])
+
+    def _save_ai(self):
+        """Persist AI settings only when they validate."""
+        try:
+            desired = replace(
+                self.context.config.current,
+                ai_enabled=self.ai_enabled.get(),
+                ai_base_url=self.ai_base_url.get().strip(),
+                ai_api_key=self.ai_key.get().strip(),
+                ai_model=self.ai_model.get().strip(),
+            )
+            self.context.config.update(desired, persist=True)
+            self.status.set('AI settings saved')
+        except OffLookError as exc:
+            self.status.set(str(exc))
+
+    def _run_ai(self):
+        """Run the configured AI assistant in a worker, never on the Tk thread."""
+        if self._ai_thread and self._ai_thread.is_alive():
+            return
+        instruction = self.ai_instruction.get().strip()
+        if not instruction:
+            self.ai_status.set('Enter an instruction first.')
+            return
+        config = self.context.config.current
+        if not config.ai_api_key:
+            self.ai_status.set('Save an API key first.')
+            return
+        self.ai_run_button.state(['disabled'])
+        self.ai_status.set('Running assistant…')
+        def work():
+            try:
+                from offlook.core import OpenAiCompatibleProvider, run_instruction
+                provider = OpenAiCompatibleProvider(config.ai_base_url, config.ai_api_key, config.ai_model)
+                self._ai_results.put((run_instruction(instruction, provider=provider), None))
+            except OffLookError as exc:
+                self._ai_results.put((None, str(exc)))
+            except Exception as exc:
+                self._ai_results.put((None, f'AI assistant failed: {type(exc).__name__}: {exc}'))
+        self._ai_thread = threading.Thread(target=work, name='OffLookAi', daemon=True)
+        self._ai_thread.start()
+
+    def _set_ai_output(self, value):
+        """Replace the read-only assistant transcript."""
+        self.ai_output.configure(state='normal')
+        self.ai_output.delete('1.0', 'end')
+        self.ai_output.insert('1.0', value)
+        self.ai_output.configure(state='disabled')
+
+    def _record_convert(self):
+        """Capture a new conversion shortcut draft."""
+        self._convert_original = self.convert_combo.get()
+        self._recording_convert = True
+        self.status.set('Press a key combination for conversion; Esc to cancel.')
+        self.convert_entry.focus_set()
+
+    def _capture_convert(self, event):
+        """Normalize a conversion shortcut chord and leave it as an unsaved draft."""
+        if not self._recording_convert:
+            return
+        if event.keysym == 'Escape':
+            self.convert_combo.set(self._convert_original)
+            self._recording_convert = False
+            return 'break'
+        if event.keysym in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R', 'Shift_L', 'Shift_R'):
+            return 'break'
+        import win32api
+        if win32api.GetAsyncKeyState(0x5B) & 0x8000 or win32api.GetAsyncKeyState(0x5C) & 0x8000:
+            self.status.set('Windows-reserved shortcuts are not supported')
+            return 'break'
+        tokens = []
+        if event.state & 4: tokens.append('Ctrl')
+        if event.state & (8 | 0x20000): tokens.append('Alt')
+        if event.state & 1: tokens.append('Shift')
+        key = 'Space' if event.keysym == 'space' else event.keysym
+        try:
+            self.convert_combo.set(parse_hotkey('+'.join(tokens + [key])).canonical)
+            self._recording_convert = False
+            self.status.set('Recorded. Click Apply to activate.')
+        except OffLookError as exc:
+            self.status.set(str(exc))
+        return 'break'
+
+    def _apply_convert(self):
+        """Persist the conversion shortcut and swap the active listener."""
+        try:
+            spec = parse_hotkey(self.convert_combo.get())
+            desired = replace(self.context.config.current, convert_hotkey=spec.canonical)
+            self.context.config.update(desired, persist=True)
+            self._restart_convert_listener()
+            self.status.set('Convert shortcut applied')
+        except OffLookError as exc:
+            self.status.set(str(exc))
 
     def _toggle_startup(self):
         """Change logon registration only on an explicit user action."""
@@ -438,6 +707,22 @@ class PreviewApplication:
         self.diff_listener = HotkeyListener('Ctrl+Alt+D')
         self.diff_listener.start()
 
+    def _start_convert_listener(self):
+        """Start the configurable Explorer file-conversion shortcut."""
+        if self.convert_listener is not None or self.closing:
+            return
+        from offlook.platforms.windows_hotkey import HotkeyListener
+        self.convert_listener = HotkeyListener(self.context.config.current.convert_hotkey)
+        self.convert_listener.start()
+
+    def _restart_convert_listener(self):
+        """Swap the conversion shortcut to the newly persisted combination."""
+        if self.convert_listener is not None:
+            self._retire(self.convert_listener)
+            self.convert_listener = None
+        if self.resident:
+            self._start_convert_listener()
+
     def _add_path(self):
         """Run add-only user PATH registration away from the Tk thread."""
         if self._path_thread and self._path_thread.is_alive():
@@ -520,6 +805,18 @@ class PreviewApplication:
         self.selection_mode = 'diff'
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current))
 
+    def _convert_hotkey(self, hwnd):
+        """Use the convert shortcut to collect every selected Explorer file."""
+        if not hwnd or self.closing:
+            return
+        from offlook.platforms.windows_selection import SelectionRequest
+        self.generation += 1
+        self.selection_hwnd = hwnd
+        self.selection_mode = 'convert'
+        self.runner.submit(SelectionRequest(
+            self.generation, hwnd, self.context.config.current, multiple=True
+        ))
+
     def _poll(self):
         """Consume native events and worker results only on the owning Tk thread."""
         if self.tray:
@@ -545,6 +842,14 @@ class PreviewApplication:
             for event in self.diff_listener.poll():
                 if event['type'] == 'hotkey' and not self.closing:
                     self._diff_hotkey(event['foreground_hwnd'])
+                elif event['type'] == 'error':
+                    self.status.set(event['message'])
+                elif event['type'] == 'ready':
+                    self._start_convert_listener()
+        if self.convert_listener:
+            for event in self.convert_listener.poll():
+                if event['type'] == 'hotkey' and not self.closing:
+                    self._convert_hotkey(event['foreground_hwnd'])
                 elif event['type'] == 'error':
                     self.status.set(event['message'])
         pending=self._pending_listener
@@ -604,6 +909,53 @@ class PreviewApplication:
                     'Differences found.' if comparison.changed else 'No differences from Git HEAD.'
                 )
                 self.status.set('Git comparison ready')
+        try:
+            filter_results, filter_error = self._filter_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self.filter_button.state(['!disabled'])
+            for item in self.filter_tree.get_children():
+                self.filter_tree.delete(item)
+            if filter_error:
+                self.filter_status.set(filter_error)
+            else:
+                for item in filter_results:
+                    self.filter_tree.insert('', 'end', values=(item.kind.value, str(item.path)))
+                self.filter_status.set(f'{len(filter_results)} file(s) match the selected formats.')
+        try:
+            conversion, convert_error = self._convert_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            if convert_error:
+                self.convert_status.set(convert_error)
+                self.status.set(convert_error)
+            else:
+                outputs = sum(len(outcome.outputs) for outcome in conversion)
+                message = f'Converted {len(conversion)} file(s) → {outputs} output file(s).'
+                self.convert_status.set(message)
+                self.status.set(message)
+        try:
+            ai_result, ai_error = self._ai_results.get_nowait()
+        except queue.Empty:
+            pass
+        else:
+            self.ai_run_button.state(['!disabled'])
+            if ai_error:
+                self.ai_status.set(ai_error)
+                self._set_ai_output(ai_error)
+            else:
+                lines = [ai_result.answer]
+                if ai_result.steps:
+                    lines.append('')
+                    lines.append('— Tool actions —')
+                    for step in ai_result.steps:
+                        lines.append(f'• {step.name}({step.arguments})')
+                        if step.error:
+                            lines.append(f'  error: {step.error}')
+                self.ai_status.set('Assistant finished.')
+                self._set_ai_output('\n'.join(lines))
         for result in self.runner.poll():
             # Every resize/page/file switch invalidates older response generations.
             if self.closing or result['request_id']!=self.generation: continue
@@ -611,21 +963,25 @@ class PreviewApplication:
                 import win32gui
                 hwnd=self.selection_hwnd
                 self.selection_hwnd=None
-                if result['code']:
-                    self.status.set(result['message'])
-                elif win32gui.GetForegroundWindow()==hwnd and result['data'].path is not None:
-                    if self.selection_mode == 'search':
-                        self.search_folder.set(str(result['data'].path))
-                        self.search_status.set('Folder selected from File Explorer. Enter a filename or choose a type, then click Search.')
-                        self._show()
-                        self.search_entry.focus_set()
-                        self.search_entry.selection_range(0, 'end')
-                    elif self.selection_mode == 'diff':
-                        self._start_comparison(result['data'].path)
-                    else:
-                        self.open(result['data'].path)
+                mode=self.selection_mode
                 self.selection_mode = None
                 if self.preview: self.preview.set_render_suspended(False)
+                if result['code']:
+                    self.status.set(result['message'])
+                elif win32gui.GetForegroundWindow()!=hwnd:
+                    pass
+                elif mode == 'search' and result['data'].path is not None:
+                    self.search_folder.set(str(result['data'].path))
+                    self.search_status.set('Folder selected from File Explorer. Enter a filename or choose a type, then click Search.')
+                    self._show()
+                    self.search_entry.focus_set()
+                    self.search_entry.selection_range(0, 'end')
+                elif mode == 'diff' and result['data'].path is not None:
+                    self._start_comparison(result['data'].path)
+                elif mode == 'convert' and result['data'].paths:
+                    self._show_conversion_wheel(result['data'].paths)
+                elif result['data'].path is not None:
+                    self.open(result['data'].path)
             elif self.preview:
                 if result['code']:
                     self.exit_code=1
@@ -636,8 +992,8 @@ class PreviewApplication:
                     if not self._preview_opened:
                         self._preview_opened=True
                         self.context.events.publish('preview.opened',{'file_info':result['data'].file_info})
-        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,*self._retiring_listeners] if item]
-        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()):
+        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,self.convert_listener,*self._retiring_listeners] if item]
+        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()) and (self._filter_thread is None or not self._filter_thread.is_alive()) and (self._convert_thread is None or not self._convert_thread.is_alive()) and (self._ai_thread is None or not self._ai_thread.is_alive()):
             self.root.destroy()
             return
         self.root.after(25,self._poll)
@@ -659,9 +1015,10 @@ class PreviewApplication:
         self.close_preview(exiting=False)
         self.unsubscribe()
         self.runner.close()
-        for listener in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,*self._retiring_listeners]:
+        for listener in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,self.convert_listener,*self._retiring_listeners]:
             if listener: listener.stop()
         if self.tray: self.tray.stop()
+        if self.convert_wheel and self.convert_wheel.winfo_exists(): self.convert_wheel.destroy()
         if self.help_window and self.help_window.winfo_exists(): self.help_window.destroy()
         if self.diff_window and self.diff_window.winfo_exists(): self.diff_window.destroy()
 

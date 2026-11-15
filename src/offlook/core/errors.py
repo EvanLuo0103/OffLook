@@ -23,3 +23,11 @@ class HotkeyError(OffLookError):
 
 class ExtensionError(OffLookError):
     """Report invalid action registration, lookup, or execution."""
+
+
+class ConversionError(OffLookError):
+    """Report an unsupported, failed, or unsafe local file conversion."""
+
+
+class AiError(OffLookError):
+    """Report an AI provider configuration, request, or tool-execution failure."""

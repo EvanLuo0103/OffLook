@@ -26,25 +26,30 @@ class SelectionRequest:
     """Pickle-safe selection request with its captured HWND and frozen config.
 
     ``request_id`` identifies the controller generation; ``config`` supplies the
-    worker deadline. No COM interface crosses the process boundary.
+    worker deadline. ``multiple`` requests every selected file instead of a
+    single one. No COM interface crosses the process boundary.
     """
 
     request_id: int
     foreground_hwnd: int
     config: PreviewConfig
     allow_folder: bool = False
+    multiple: bool = False
 
 
 @dataclass(frozen=True)
 class SelectionResult:
-    """Return an optional local path and a human-readable no-selection reason.
+    """Return optional local paths and a human-readable no-selection reason.
 
-    ``None`` is reserved for an unsupported foreground view or changed focus;
-    empty/multiple/virtual selections are errors instead of successful results.
+    ``path`` is the single-selection result; ``paths`` carries a multi-selection
+    result (or is empty). ``None`` is reserved for an unsupported foreground view
+    or changed focus; empty/multiple/virtual selections are errors instead of
+    successful results.
     """
 
     path: Path | None
     reason: str
+    paths: tuple[Path, ...] = ()
 
 
 class ExplorerSelectionProvider:
@@ -69,6 +74,17 @@ class ExplorerSelectionProvider:
         owns exactly one reference without uninitializing pywin32's or a caller's
         pre-existing COM state. No COM objects outlive this explicit STA scope.
         """
+        return self._get_selected(foreground_hwnd, allow_folder=allow_folder, multiple=False)  # type: ignore[return-value]
+
+    def get_selected_files(self, foreground_hwnd: int, *, allow_folder: bool = False) -> tuple[Path, ...] | None:
+        """Return every selected local file, or None for unsupported/lost focus.
+
+        Folders are skipped; an empty selection or a selection with no files
+        raises FileAccessError. Use this for batch operations such as conversion.
+        """
+        return self._get_selected(foreground_hwnd, allow_folder=allow_folder, multiple=True)  # type: ignore[return-value]
+
+    def _get_selected(self, foreground_hwnd: int, *, allow_folder: bool, multiple: bool) -> Path | tuple[Path, ...] | None:
         if sys.platform != "win32":
             raise FileAccessError("OffLook currently supports only Windows")
         if not isinstance(foreground_hwnd, int) or isinstance(foreground_hwnd, bool):
@@ -102,7 +118,7 @@ class ExplorerSelectionProvider:
             initialized = True
             try:
                 path = _query_foreground(
-                    foreground_hwnd, pythoncom, win32gui, allow_folder=allow_folder
+                    foreground_hwnd, pythoncom, win32gui, allow_folder=allow_folder, multiple=multiple
                 )
             except Exception as exc:
                 # dynamic.Dispatch frames may retain COM wrappers as ``self``.
@@ -179,8 +195,8 @@ def _desktop_dispatch(windows: Any, pythoncom: Any, variant_type: Any) -> Any:
 
 
 def _query_foreground(
-    foreground_hwnd: int, pythoncom: Any, gui: Any, *, allow_folder: bool = False
-) -> Path | None:
+    foreground_hwnd: int, pythoncom: Any, gui: Any, *, allow_folder: bool = False, multiple: bool = False
+) -> Path | tuple[Path, ...] | None:
     """Inspect candidate HWNDs, then read only a unique matching active view.
 
     Runs after STA initialization. Returns None for focus changes/unsupported
@@ -251,33 +267,39 @@ def _query_foreground(
                 folder = Path(current_folder)
                 try:
                     if folder.is_dir():
-                        return folder
+                        return (folder,) if multiple else folder
                 except OSError as exc:
                     raise FileAccessError("The current Explorer folder cannot be accessed") from exc
                 raise FileAccessError("The current Explorer view is not a local folder")
             raise FileAccessError("No file is selected; select one local file")
-        if count != 1:
-            raise FileAccessError("Multiple items are selected; select only one local file")
-        item = selected.Item(0)
-        if not bool(item.IsFileSystem):
-            raise FileAccessError("The selected item is not a local file system file")
-        if bool(item.IsFolder) and not allow_folder:
-            raise FileAccessError("Folder previews are not supported; select one local file")
-        path = item.Path
-        if not isinstance(path, str) or not path:
-            raise FileAccessError("The selected item has no valid local file path")
+        from .windows_files import validate_local_file
+        collected: list[Path] = []
+        for index in range(count):
+            item = selected.Item(index)
+            if not bool(item.IsFileSystem):
+                continue
+            if bool(item.IsFolder):
+                if not allow_folder:
+                    continue
+                folder_path = item.Path
+                if isinstance(folder_path, str) and folder_path:
+                    collected.append(Path(folder_path))
+                continue
+            raw_path = item.Path
+            if not isinstance(raw_path, str) or not raw_path:
+                continue
+            collected.append(validate_local_file(raw_path))
         if int(gui.GetForegroundWindow()) != foreground_hwnd:
             return None
-        from .windows_files import validate_local_file
-        if allow_folder and bool(item.IsFolder):
-            folder = Path(path)
-            try:
-                if not folder.is_dir():
-                    raise FileAccessError("The selected folder cannot be accessed")
-            except OSError as exc:
-                raise FileAccessError("The selected folder cannot be accessed") from exc
-            return folder
-        return validate_local_file(path)
+        if multiple:
+            if not collected:
+                raise FileAccessError("No local files are selected; select at least one file")
+            return tuple(collected)
+        if not collected:
+            raise FileAccessError("No local file is selected; select one local file")
+        if len(collected) != 1:
+            raise FileAccessError("Multiple items are selected; select only one local file")
+        return collected[0]
     finally:
         item = selected = folder_view = background = None
         view = desktop = window = None

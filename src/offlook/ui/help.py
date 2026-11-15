@@ -20,6 +20,15 @@ Git comparison
 The separate "Git comparison" card contains "Compare with Git HEAD". Select a tracked text file there, or select it in File Explorer and press Ctrl+Alt+D. The window compares the working file with HEAD line by line and highlights added, deleted, and modified lines.
 Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
 
+Converting files
+Select one or more files in File Explorer and press the convert shortcut (default Alt+C) to open a format wheel, then choose a target format to convert locally. You can also click "Choose files to convert" in the main window. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word and Excel conversions are available when the optional python-docx and openpyxl packages are installed.
+
+Filtering files
+In "Filter files", choose a local folder and check any combination of formats, then click "Apply filter" to list matching files recursively. Double-click a result to preview it.
+
+AI file assistant
+The "AI file assistant" card is an opt-in port: enter your own OpenAI-compatible endpoint (for example DeepSeek's base URL), model, and API key, then describe a file task in plain language. The assistant may call OffLook's local list, filter, move, copy, and organize tools to act on your files. No network request is made unless you run the assistant with an API key.
+
 Current shortcut
 {hotkey}
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.

@@ -20,6 +20,9 @@ No virtual environment is used. The initial installation downloads dependencies;
 - Use **Search files** to choose a local folder, search recursively by filename, and filter by document type, including Word, Excel, and PowerPoint files; double-click a result to preview it.
 - In File Explorer, open or select a local folder and press the fixed **Ctrl+Q** shortcut to load that folder into Search files.
 - Use the separate **Git comparison** card and click **Compare with Git HEAD**, or press **Ctrl+Alt+D** on a selected Explorer file, to compare its working-tree contents with the latest committed version. Added, deleted, and modified lines are highlighted.
+- Select one or more files in File Explorer and press **Alt+C** (configurable in **Shortcut settings**) to open a **conversion wheel**, then pick a target format to convert locally — images ↔ PNG/JPEG/BMP/GIF/TIFF/WebP/ICO, images → PDF, PDF → images, and text/Markdown/code/CSV → PDF/TXT/Word. You can also click **Choose files to convert**.
+- Use the **Filter files** card to browse a folder and check any combination of formats; **Apply filter** lists every matching file and double-clicking one previews it.
+- The **AI file assistant** card is an opt-in port for your own AI. Enter an OpenAI-compatible base URL (e.g. DeepSeek), model, and API key, then describe a file task in plain language; the assistant can call OffLook's local list/filter/move/copy/organize tools to archive and organize files.
 - To test `Ctrl+Q` separately, run `py -m offlook diagnose-search-shortcut`; it reports shortcut registration, detection, and selected-folder validation.
 - Use **Shortcut settings** to record and apply a new combination. The previous shortcut is kept if registration or saving fails.
 - Click **Add to PATH** and reopen PowerShell as instructed to use `offlook preview '.\README.md'`.
@@ -37,6 +40,6 @@ py -m offlook --background
 
 Supports text, Markdown, code, CSV, common images, and static PDFs. Markdown uses lightweight formatting, images show only the first frame, and password-protected PDFs are not supported. Defaults are 10 MiB and a 5-second timeout: text is truncated, while oversized media shows metadata only. Output is limited to 4,096 physical pixels per edge and 8,388,608 pixels total; small source images are not enlarged.
 
-Only local regular files are accepted; network paths, reparse points, and cloud-recall paths are rejected. OffLook does not execute code or CSV formulas or invoke third-party thumbnail handlers. The operating system, synchronization software, and other external components are outside its control, so absolute prevention of data leakage cannot be guaranteed. Conversion, classification, AI, search, and diff are not implemented.
+Only local regular files are accepted; network paths, reparse points, and cloud-recall paths are rejected. OffLook does not execute code or CSV formulas or invoke third-party thumbnail handlers. The operating system, synchronization software, and other external components are outside its control, so absolute prevention of data leakage cannot be guaranteed. Conversion runs locally with Pillow/pypdfium2; the optional AI assistant is the only network feature and makes requests solely to the endpoint you configure.
 
 requirements.txt is the single source of runtime dependencies; pyproject.toml defines packaging and entry points. OffLook uses the [MIT license](LICENSE); dependencies retain their respective licenses.

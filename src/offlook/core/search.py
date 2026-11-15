@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 import ntpath
 import os
@@ -53,25 +54,12 @@ def _kind_for_extension(path: Path) -> FileKind:
     return _EXTENSION_KINDS.get(path.suffix.lower(), FileKind.BINARY)
 
 
-def find_files(
-    folder: str | Path,
-    *,
-    filename: str = "",
-    kind: FileKind | None = None,
-) -> tuple[SearchResult, ...]:
-    """Recursively find local regular files matching name and document category.
+def _iter_files(root: Path, needle: str) -> Iterable[Path]:
+    """Yield local regular files matching the casefolded name fragment, depth-first.
 
-    ``filename`` is a case-insensitive substring match against the file name.
-    Search does not read file contents, follow symlinks/reparse points, or
-    traverse directories that cannot be inspected.
+    Does not read file contents, follow symlinks/reparse points, or traverse
+    directories that cannot be inspected.
     """
-    root = _validate_folder(folder)
-    if not isinstance(filename, str):
-        raise FileAccessError("The filename filter must be text")
-    if kind is not None and not isinstance(kind, FileKind):
-        raise FileAccessError("The document type filter is invalid")
-    needle = filename.casefold().strip()
-    matches: list[SearchResult] = []
     pending = [root]
     while pending:
         current = pending.pop()
@@ -92,10 +80,86 @@ def find_files(
                     continue
             except OSError:
                 continue
-            path = Path(entry.path)
             if needle not in entry.name.casefold():
                 continue
-            entry_kind = _kind_for_extension(path)
-            if kind is None or entry_kind is kind:
-                matches.append(SearchResult(path, entry_kind))
+            yield Path(entry.path)
+
+
+def _normalize_kinds(kinds: Iterable[FileKind]) -> tuple[FileKind, ...]:
+    """Validate and freeze a collection of FileKind filters."""
+    normalized = tuple(kinds)
+    for kind in normalized:
+        if not isinstance(kind, FileKind):
+            raise FileAccessError("The document type filter is invalid")
+    return normalized
+
+
+def _normalize_extensions(extensions: Iterable[str]) -> frozenset[str]:
+    """Validate, lower-case, and dot-prefix a collection of extension filters."""
+    normalized: set[str] = set()
+    for extension in extensions:
+        if not isinstance(extension, str):
+            raise FileAccessError("An extension filter must be text")
+        extension = extension.lower()
+        if extension and not extension.startswith("."):
+            extension = "." + extension
+        normalized.add(extension)
+    return frozenset(normalized)
+
+
+def find_files(
+    folder: str | Path,
+    *,
+    filename: str = "",
+    kind: FileKind | None = None,
+) -> tuple[SearchResult, ...]:
+    """Recursively find local regular files matching name and document category.
+
+    ``filename`` is a case-insensitive substring match against the file name.
+    Search does not read file contents, follow symlinks/reparse points, or
+    traverse directories that cannot be inspected.
+    """
+    root = _validate_folder(folder)
+    if not isinstance(filename, str):
+        raise FileAccessError("The filename filter must be text")
+    if kind is not None and not isinstance(kind, FileKind):
+        raise FileAccessError("The document type filter is invalid")
+    needle = filename.casefold().strip()
+    matches: list[SearchResult] = []
+    for path in _iter_files(root, needle):
+        entry_kind = _kind_for_extension(path)
+        if kind is None or entry_kind is kind:
+            matches.append(SearchResult(path, entry_kind))
+    return tuple(matches)
+
+
+def filter_files(
+    folder: str | Path,
+    *,
+    filename: str = "",
+    kinds: Iterable[FileKind] = (),
+    extensions: Iterable[str] = (),
+) -> tuple[SearchResult, ...]:
+    """Recursively find local files matching name and any of several categories.
+
+    This is the multi-select companion to :func:`find_files`: a file matches when
+    its name contains ``filename`` (case-insensitive) AND its category is in
+    ``kinds`` (when non-empty) AND its suffix is in ``extensions`` (when
+    non-empty). Empty filters match every category/extension. File contents are
+    never read and symlinks/reparse points are skipped.
+    """
+    root = _validate_folder(folder)
+    if not isinstance(filename, str):
+        raise FileAccessError("The filename filter must be text")
+    kinds = _normalize_kinds(kinds)
+    extensions = _normalize_extensions(extensions)
+    needle = filename.casefold().strip()
+    matches: list[SearchResult] = []
+    for path in _iter_files(root, needle):
+        entry_kind = _kind_for_extension(path)
+        if kinds and entry_kind not in kinds:
+            continue
+        if extensions and path.suffix.lower() not in extensions:
+            continue
+        matches.append(SearchResult(path, entry_kind))
     return tuple(matches)

@@ -42,6 +42,8 @@ def _validate_data(data: object, request: object) -> None:
         from pathlib import Path
         if not isinstance(data, SelectionResult) or (data.path is not None and not isinstance(data.path, Path)):
             raise ValueError("invalid selection result")
+        if type(data.paths) is not tuple or any(not isinstance(path, Path) for path in data.paths):
+            raise ValueError("invalid selection paths")
         if not isinstance(data.reason, str) or len(data.reason) > 512:
             raise ValueError("invalid selection reason")
 
@@ -77,10 +79,18 @@ def _execute_request(request: object, renderers: dict[FileKind, type[Renderer]])
     from offlook.platforms.windows_selection import ExplorerSelectionProvider, SelectionRequest, SelectionResult
     if not isinstance(request, SelectionRequest):
         raise ValueError("unsupported worker request")
-    path = ExplorerSelectionProvider().get_selected_file(
+    provider = ExplorerSelectionProvider()
+    if request.multiple:
+        paths = provider.get_selected_files(
+            request.foreground_hwnd, allow_folder=request.allow_folder
+        )
+        reason = "" if paths is not None else "The foreground is not a supported Shell view or has changed"
+        return SelectionResult(None, reason, tuple(paths) if paths else ())
+    path = provider.get_selected_file(
         request.foreground_hwnd, allow_folder=request.allow_folder
     )
-    return SelectionResult(path, "" if path is not None else "The foreground is not a supported Shell view or has changed")
+    reason = "" if path is not None else "The foreground is not a supported Shell view or has changed"
+    return SelectionResult(path, reason)
 
 
 def _worker_target(connection: Any, request: object, renderers: dict[FileKind, type[Renderer]]) -> None:
