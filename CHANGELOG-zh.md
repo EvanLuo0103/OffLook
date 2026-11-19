@@ -167,3 +167,35 @@ Cannot identify a unique offlook.exe in the installation records.
 4. **「加入 PATH」修好了**：以前在 editable 安裝下必失敗。
 5. **說明視窗（F1）會跟著介面語言**切換，內容為完整中文版。
 6. 檔案系統／設定類的**錯誤訊息仍是英文**（刻意保留，因為它們引用路徑與設定細節）。
+
+---
+
+## 十、修復：合併組員的「預覽視窗手動縮放」（曾被我方覆蓋）
+
+**問題**
+本專案是以 GitHub 上的 **ZIP 快照**為基礎修改的，而組員在我下載之後又推了一個 commit：
+
+```
+9ebdc77  Add manual zoom controls to preview window   (作者 Anson-pb)
+```
+
+把整份檔案覆蓋進 clone 時，`src/offlook/preview/window.py` 被我們的版本整檔取代，**該 commit 的縮放功能因此消失**（`git grep zoom HEAD` 找不到任何結果）。
+
+**做法**
+把該功能完整合併回我們的版本，並與本專案新增的滾輪整合：
+
+| 元件 | 行為 |
+| --- | --- |
+| `_zoom` | 100% 起算，範圍 25%–400%，每次 ±25% |
+| `+` / `−` 按鈕 | 調整倍率，並以 `bounded_viewport` 重新向 worker 要求更高解析度的圖（不是把舊圖放大） |
+| `Fit` / `適應` | 回到 100%（隨介面語言翻譯） |
+| 圖片畫布 | 縮放後超出視窗時可**用滾輪或捲軸**平移（與第十一節的滾輪功能共用 `_wheel_target`） |
+| 頁面導覽列 | 顯示時機調整為「PDF 或有圖片」；純文字／表格時隱藏縮放控制 |
+
+**影響檔案**：`src/offlook/preview/window.py`、`src/offlook/ui/i18n.py`
+
+**驗證**：11 項檢查全數通過（控制項顯示、倍率、放大後尺寸、上限、畫布可捲動、滾輪可捲動縮放後的圖片、Fit 還原、純文字時隱藏控制項）。
+
+**教訓（流程面）**
+以 ZIP 下載的程式碼**沒有 Git 歷史**，直接覆蓋會悄悄刪掉組員的 commit。正確做法是：`git clone` 之後再改，或至少先把 clone 的變更合併回自己的版本再 push。本專案的 `setup-github.ps1` 已改為**偵測到 clone 已存在就停止**，避免再次覆蓋。
+

@@ -175,7 +175,21 @@ git pull
 
 ---
 
-## 9. 常見錯誤
+## 11. 專案附帶的腳本（都在 `default-workspace` 最上層）
+
+| 腳本 | 何時用 | 指令 |
+| --- | --- | --- |
+| `setup-github.ps1` | **只有第一次**：clone 組員的 repo 並把專案推上去 | `powershell -ExecutionPolicy Bypass -File ".\setup-github.ps1"` |
+| `push-now.ps1` | **平常每次改完**：看變更 → commit → push（也會顯示作者歸屬） | `powershell -ExecutionPolicy Bypass -File ".\push-now.ps1"` |
+| `push-now.ps1 -CheckOnly` | 只看狀態、不提交（確認作者與待提交檔案） | `... -CheckOnly` |
+| `fix-commit-author.ps1` | 要改「最後一筆已推上去的 commit」作者（會 force push，須全組同意） | `... -Check` 先看，再 `... -Force` |
+| `run-offlook.ps1` | 直接執行程式（可指定要跑哪個資料夾） | `... -Project offlook-team` |
+
+`setup-github.ps1` 在偵測到 `offlook-team` 已存在時會**主動停止**，避免又用本機資料夾覆蓋組員的 commit。日常請改用 `push-now.ps1`。
+
+---
+
+## 12. 常見錯誤
 
 | 訊息 | 原因與解法 |
 | --- | --- |

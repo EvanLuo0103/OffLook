@@ -100,7 +100,36 @@ for the background:
 instead and giving `_convert_mode_changed(self, _event=None)` the event parameter.
 Side effect: changing **Quality** now actually saves the new mode.
 
-## 5. Documentation updated
+## 6. Restored the teammate's preview zoom controls
+
+This build started from a **ZIP snapshot** of the repository. A teammate pushed
+
+```
+9ebdc77  Add manual zoom controls to preview window
+```
+
+after that snapshot, so copying our tree over the clone replaced
+`src/offlook/preview/window.py` and **silently removed that feature**
+(`git grep zoom HEAD` returned nothing).
+
+The feature is now merged into our version and integrated with the wheel work:
+
+| Part | Behaviour |
+| --- | --- |
+| `_zoom` | 100% start, 25%–400% range, ±25% per click |
+| `+` / `−` | Re-requests a higher-resolution raster through `bounded_viewport`, so magnifying reveals real pixels instead of stretching the old image |
+| `Fit` | Back to 100%; the label is translated (`Fit` / `適應`) |
+| Image canvas | When zoomed past the window, the image pans with the wheel or the scrollbars (it shares `_wheel_target` with section 1b) |
+| Navigation bar | Now shown for PDFs *and* images; the zoom controls hide for text and tables |
+
+**Files**: `src/offlook/preview/window.py`, `src/offlook/ui/i18n.py`
+**Verification**: 11 checks (controls visible, percentage, larger raster, cap, scrollregion, wheel panning, Fit reset, hidden for text).
+
+**Process lesson**: a ZIP download carries no Git history, so copying it over a
+clone deletes teammates' commits. `setup-github.ps1` now stops when the clone
+already exists, so this cannot happen again silently.
+
+## 7. Documentation updated
 
 - `README.md` — language-switch bullet under *Main controls*.
 - `docs/api.md` — `language` configuration field.

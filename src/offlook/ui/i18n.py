@@ -201,6 +201,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "preview.close_hint": ("Esc / unmodified Space to close", "按 Esc 或 Space 關閉"),
     "preview.previous": ("Previous", "上一頁"),
     "preview.next": ("Next", "下一頁"),
+    "preview.zoom_fit": ("Fit", "適應"),
     "preview.file_info": ("File information", "檔案資訊"),
     "preview.info_subtitle": ("Safe type icon · File contents not parsed",
                               "安全類型圖示 · 未解析檔案內容"),

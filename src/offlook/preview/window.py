@@ -68,6 +68,9 @@ class PreviewWindow:
         self._data: PreviewData | None = None
         self._raster = self._photo = self._image = None
         self._display_size = None
+        self._image_canvas = None
+        self._image_item = None
+        self._zoom = 1.0
         self._page_index = 0
         self._wheel_target = None
         self.window = tk.Toplevel(parent)
@@ -108,6 +111,20 @@ class PreviewWindow:
         self._previous.pack(side="left")
         self._page_label.pack(side="left", padx=12)
         self._following.pack(side="left")
+        # Manual zoom controls; packed only while a raster is displayed.
+        self._zoom_controls = ttk.Frame(self._nav, style="Card.TFrame")
+        self._zoom_out = ttk.Button(self._zoom_controls, text="−", width=3,
+                                    command=lambda: self._change_zoom(1 / 1.25), style="Preview.TButton")
+        self._zoom_label = ttk.Label(self._zoom_controls, text="100%", width=6,
+                                     style="Preview.Card.TLabel", anchor="center")
+        self._zoom_in = ttk.Button(self._zoom_controls, text="+", width=3,
+                                   command=lambda: self._change_zoom(1.25), style="Preview.TButton")
+        self._zoom_fit = ttk.Button(self._zoom_controls, text=tr("preview.zoom_fit"),
+                                    command=self._reset_zoom, style="Preview.TButton")
+        self._zoom_out.pack(side="left", padx=(0, 4))
+        self._zoom_label.pack(side="left", padx=4)
+        self._zoom_in.pack(side="left", padx=4)
+        self._zoom_fit.pack(side="left", padx=(4, 0))
         self._footer = ttk.Frame(self.window)
         self._footer.pack(side="bottom", fill="x")
         self._status = ttk.Label(self._footer, text=tr("preview.loading"), style="Preview.Muted.TLabel", justify="left")
@@ -177,7 +194,8 @@ class PreviewWindow:
         except tk.TclError:
             return None
         widget = event.widget
-        if widget is target:
+        if widget is target and isinstance(widget, (tk.Text, tk.Listbox, ttk.Treeview)):
+            # These widgets scroll themselves; a canvas target is scrolled below.
             return None
         if isinstance(widget, (ttk.Combobox, ttk.Scrollbar)):
             return None
@@ -238,6 +256,10 @@ class PreviewWindow:
 
     def _request_viewport(self, page: int) -> None:
         width, height = self._viewport()
+        # Manual zoom asks the worker for more physical pixels, so magnifying an
+        # image reveals real detail instead of stretching the previous raster.
+        width, height = bounded_viewport(math.ceil(width * self._zoom),
+                                         math.ceil(height * self._zoom))
         if self._suspended:
             self._pending_viewport = True
             return
@@ -249,6 +271,29 @@ class PreviewWindow:
         self.set_loading(tr("preview.updating_resolution") if self._image is not None
                          else tr("preview.loading"))
         self.on_render(page, width, height)
+
+    def _update_zoom_label(self) -> None:
+        self._zoom_label.configure(text=f"{round(self._zoom * 100)}%")
+
+    def _change_zoom(self, factor: float) -> None:
+        """Change raster magnification while retaining the current image during rerender."""
+        if self._closing or self._raster is None:
+            return
+        self._zoom = min(4.0, max(0.25, self._zoom * factor))
+        self._update_zoom_label()
+        self._fit_image()
+        page = self._submitted[0] if self._submitted is not None else self._page_index
+        self._request_viewport(page)
+
+    def _reset_zoom(self) -> None:
+        """Return to the fit-the-window magnification."""
+        if self._closing or self._raster is None:
+            return
+        self._zoom = 1.0
+        self._update_zoom_label()
+        self._fit_image()
+        page = self._submitted[0] if self._submitted is not None else self._page_index
+        self._request_viewport(page)
 
 
     def _page(self, offset: int) -> None:
@@ -317,6 +362,7 @@ class PreviewWindow:
                                    if info.kind == FileKind.PDF and isinstance(data.content, RasterContent) else "")
         for child in self.body.winfo_children():
             child.destroy()
+        self._image_canvas = self._image_item = None
         self._image = None
         self._photo = None
         self._raster = data.content if isinstance(data.content, RasterContent) else None
@@ -331,45 +377,74 @@ class PreviewWindow:
             self._show_text(content.text if isinstance(content, TextContent) else str(content))
         self._completed = self._submitted
         is_pdf = self._page_label.cget("text") != ""
-        if is_pdf:
+        has_raster = self._raster is not None
+        if is_pdf or has_raster:
             if not self._nav.winfo_manager():
                 self._nav.pack(fill="x", padx=self._padding, pady=(0, self._px(8)))
+            if is_pdf:
+                self._previous.pack(side="left")
+                self._page_label.pack(side="left", padx=12)
+                self._following.pack(side="left")
+            else:
+                self._previous.pack_forget()
+                self._page_label.pack_forget()
+                self._following.pack_forget()
         else:
             self._nav.pack_forget()
+        if has_raster:
+            self._zoom_controls.pack(side="right")
+            self._update_zoom_label()
+        else:
+            self._zoom_controls.pack_forget()
         self._previous.state(["!disabled"] if is_pdf and data.page_index > 0 else ["disabled"])
         self._following.state(["!disabled"] if is_pdf and data.page_index + 1 < data.page_count else ["disabled"])
 
     def _fit_image(self) -> None:
-        """Fit the retained worker raster locally; never resample a previous PhotoImage."""
-        if self._closing or self._image is None:
+        """Fit the raster at 100%, then apply manual zoom with a scrollable canvas."""
+        if self._closing or self._image is None or self._image_canvas is None:
             return
         from PIL import Image, ImageTk
         width, height = self._viewport()
         source_w, source_h = self._image.size
-        scale = min(1.0, width / source_w, height / source_h)
+        fit = min(1.0, width / source_w, height / source_h)
+        scale = fit * self._zoom
         target = (max(1, math.floor(source_w * scale)), max(1, math.floor(source_h * scale)))
-        if target == self._display_size:
-            return
-        # Larger viewports require a worker render; never invent detail by upscaling.
-        resampling = getattr(Image, "Resampling", Image).LANCZOS
-        image = self._image if target == self._image.size else self._image.resize(target, resampling)
-        try:
-            self._photo = ImageTk.PhotoImage(image, master=self.window)
-            self._image_label.configure(image=self._photo)
-            self._display_size = target
-        finally:
-            if image is not self._image:
-                image.close()
+        if target != self._display_size:
+            # Larger viewports require a worker render; never invent detail by upscaling.
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            image = self._image if target == self._image.size else self._image.resize(target, resampling)
+            try:
+                self._photo = ImageTk.PhotoImage(image, master=self.window)
+                self._image_canvas.itemconfigure(self._image_item, image=self._photo)
+                self._display_size = target
+            finally:
+                if image is not self._image:
+                    image.close()
+        canvas_w = max(1, self._image_canvas.winfo_width())
+        canvas_h = max(1, self._image_canvas.winfo_height())
+        region_w, region_h = max(target[0], canvas_w), max(target[1], canvas_h)
+        x = max(0, (canvas_w - target[0]) // 2)
+        y = max(0, (canvas_h - target[1]) // 2)
+        self._image_canvas.coords(self._image_item, x, y)
+        self._image_canvas.configure(scrollregion=(0, 0, region_w, region_h))
 
 
 
     def _show_raster(self, raster: RasterContent) -> None:
         from PIL import Image
         self._image = Image.frombytes("RGBA", (raster.width, raster.height), raster.rgba)
-        self._image_label = ttk.Label(self.body, anchor="center", style="Preview.Card.TLabel")
-        self._image_label.pack(fill="both", expand=True)
+        self._image_canvas = tk.Canvas(self.body, highlightthickness=0, background=COLORS["card"])
+        vertical = ttk.Scrollbar(self.body, orient="vertical", command=self._image_canvas.yview)
+        horizontal = ttk.Scrollbar(self.body, orient="horizontal", command=self._image_canvas.xview)
+        self._image_canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self._image_canvas.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self.body.rowconfigure(0, weight=1)
+        self.body.columnconfigure(0, weight=1)
+        self._image_item = self._image_canvas.create_image(0, 0, anchor="nw")
         self._display_size = None
-        self._wheel_target = None
+        self._wheel_target = self._image_canvas
         self._fit_image()
 
 
