@@ -21,7 +21,7 @@ The separate "Git comparison" card contains "Compare with Git HEAD". Select a tr
 Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
 
 Converting files
-Select one or more files in File Explorer and press the convert shortcut (default Alt+C) to open a format wheel, then choose a target format to convert locally. You can also click "Choose files to convert" in the main window. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word and Excel conversions are available when the optional python-docx and openpyxl packages are installed.
+Select one or more files in File Explorer and press the convert shortcut (default Alt+C) to open a format wheel, then choose a target format to convert locally. You can also click "Choose files to convert" in the main window. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word, Excel, and PowerPoint convert to PDF/TXT/CSV/images using the optional python-docx, openpyxl, and python-pptx packages. The Quality selector chooses fidelity: auto keeps images/layout when LibreOffice is installed, text is text-only, and office requires LibreOffice.
 
 Filtering files
 In "Filter files", choose a local folder and check any combination of formats, then click "Apply filter" to list matching files recursively. Double-click a result to preview it.

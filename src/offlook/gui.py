@@ -132,6 +132,14 @@ class PreviewApplication:
         ttk.Button(conversion, text='Choose files to convert', command=self._choose_convert_files).pack(anchor='w', pady=8)
         ttk.Label(conversion, text='Shortcut: Alt+C in File Explorer on one or more selected files.',
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        mode_row = ttk.Frame(conversion, style='Card.TFrame')
+        mode_row.pack(fill='x', pady=4)
+        ttk.Label(mode_row, text='Quality', style='Card.Muted.TLabel', width=10).pack(side='left')
+        self.convert_mode = tk.StringVar(value=self.context.config.current.convert_mode)
+        ttk.Combobox(mode_row, textvariable=self.convert_mode, state='readonly', width=30,
+                     values=('auto', 'text', 'office'), command=self._convert_mode_changed).pack(side='left')
+        ttk.Label(conversion, text='auto = keep images/layout when LibreOffice is installed · text = text-only · office = require LibreOffice',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(2, 0))
         self.convert_status = tk.StringVar(value='Select files, then pick a target format from the wheel.')
         ttk.Label(conversion, textvariable=self.convert_status, style='Card.Muted.TLabel',
                   wraplength=560).pack(anchor='w', pady=(6, 0))
@@ -384,7 +392,8 @@ class PreviewApplication:
         from offlook.ui.convert_wheel import show_conversion_wheel
         if self.convert_wheel is not None and self.convert_wheel.winfo_exists():
             self.convert_wheel.destroy()
-        targets = reachable_targets(paths)
+        mode = self.convert_mode.get().strip() or 'auto'
+        targets = reachable_targets(paths, mode)
         if not targets:
             self.convert_status.set('No conversion is available for the selected files.')
             self.status.set('No conversion is available for the selected files.')
@@ -400,17 +409,27 @@ class PreviewApplication:
             self.convert_status.set('A conversion is already running.')
             return
         paths = self._convert_paths
+        mode = self.convert_mode.get().strip() or 'auto'
         self.convert_status.set(f'Converting {len(paths)} file(s) to {target.lstrip(".").upper()}…')
         def work():
             try:
                 from offlook.core import convert_files
-                self._convert_results.put((convert_files(paths, target), None))
+                self._convert_results.put((convert_files(paths, target, mode=mode), None))
             except OffLookError as exc:
                 self._convert_results.put((None, str(exc)))
             except Exception as exc:
                 self._convert_results.put((None, f'Conversion failed: {type(exc).__name__}: {exc}'))
         self._convert_thread = threading.Thread(target=work, name='OffLookConvert', daemon=True)
         self._convert_thread.start()
+
+    def _convert_mode_changed(self):
+        """Persist the conversion fidelity mode when the user changes it."""
+        try:
+            desired = replace(self.context.config.current, convert_mode=self.convert_mode.get().strip() or 'auto')
+            self.context.config.update(desired, persist=True)
+        except OffLookError as exc:
+            self.convert_mode.set(self.context.config.current.convert_mode)
+            self.status.set(str(exc))
 
     def _choose_filter_folder(self):
         """Choose the root folder for format filtering."""

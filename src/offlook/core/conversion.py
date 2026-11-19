@@ -53,6 +53,11 @@ _ALIASES: dict[str, str] = {
 # availability computation and the automatic multi-image→single-PDF combine.
 _TEXT_KINDS = {FileKind.TEXT, FileKind.MARKDOWN, FileKind.CODE, FileKind.CSV}
 
+# Conversion fidelity modes. ``auto`` uses LibreOffice when available and falls
+# back to text-only; ``text`` forces text-only (drops images/layout); ``office``
+# requires LibreOffice and fails if it is missing.
+_CONVERSION_MODES = ("auto", "text", "office")
+
 # Per-target save options for Pillow; JPEG/WebP quality and GIF/ICO handling.
 _IMAGE_SAVE_KWARGS: dict[str, dict[str, object]] = {
     ".jpg": {"quality": 92},
@@ -82,6 +87,15 @@ def format_label(target: str) -> str:
 def format_group(target: str) -> str:
     """Return the wheel section name for a canonical target suffix."""
     return _GROUPS.get(normalize_target(target), "document")
+
+
+def normalize_mode(mode: str = "auto") -> str:
+    """Return a canonical conversion mode or raise ConversionError."""
+    if mode is None:
+        return "auto"
+    if not isinstance(mode, str) or mode.strip() not in _CONVERSION_MODES:
+        raise ConversionError("The conversion mode must be 'auto', 'text', or 'office'")
+    return mode.strip()
 
 
 def target_formats() -> tuple[str, ...]:
@@ -353,7 +367,8 @@ def _xlsx_to_target(source: Path, directory: Path, extension: str) -> tuple[Path
         workbook.close()
 
 
-def _pptx_to_text(source: Path, directory: Path) -> tuple[Path, ...]:
+def _pptx_lines(source: Path) -> list[str]:
+    """Return slide text lines of a presentation, requiring python-pptx."""
     try:
         import pptx
     except ImportError as exc:
@@ -371,46 +386,186 @@ def _pptx_to_text(source: Path, directory: Path) -> tuple[Path, ...]:
                     text = "".join(run.text for run in paragraph.runs)
                     if text:
                         lines.append(text)
+    return lines
+
+
+def _pptx_to_text(source: Path, directory: Path) -> tuple[Path, ...]:
+    lines = _pptx_lines(source)
     destination = _unique_path(directory, source.stem, ".txt")
     destination.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return (destination,)
 
 
+def _pptx_to_docx(source: Path, directory: Path) -> tuple[Path, ...]:
+    """Build a text-only Word document from slide text, requiring python-docx."""
+    try:
+        import docx
+    except ImportError as exc:
+        raise ConversionError("Word conversion requires the optional python-docx package") from exc
+    lines = _pptx_lines(source)
+    destination = _unique_path(directory, source.stem, ".docx")
+    document = docx.Document()
+    for line in lines or [""]:
+        document.add_paragraph(line)
+    try:
+        document.save(str(destination))
+    except Exception as exc:
+        raise ConversionError(f"Cannot write Word output: {exc}") from exc
+    return (destination,)
+
+
+def _find_soffice() -> str | None:
+    """Locate a LibreOffice ``soffice`` executable, if one is installed."""
+    import shutil
+
+    found = shutil.which("soffice")
+    if found:
+        return found
+    for candidate in (
+        "C:/Program Files/LibreOffice/program/soffice.exe",
+        "C:/Program Files (x86)/LibreOffice/program/soffice.exe",
+    ):
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _office_available() -> bool:
+    """Return whether LibreOffice is installed and reachable."""
+    return _find_soffice() is not None
+
+
+def _require_soffice() -> str:
+    """Return the soffice path or raise a clear, actionable ConversionError."""
+    soffice = _find_soffice()
+    if soffice is None:
+        raise ConversionError(
+            "High-fidelity conversion requires LibreOffice; install it or choose Text-only mode"
+        )
+    return soffice
+
+
+def _natural_key(path: Path):
+    """Sort LibreOffice output naturally so slide/page order survives renaming."""
+    import re
+
+    return [int(text) if text.isdigit() else text.casefold() for text in re.split(r"(\d+)", path.name)]
+
+
+def _office_convert(source: Path, directory: Path, convert_to: str, target_extension: str) -> tuple[Path, ...]:
+    """Convert through LibreOffice, moving every result out of a temp directory.
+
+    LibreOffice writes into ``--outdir`` with its own naming (and may emit one
+    file per slide for image targets), so results are moved into ``directory``
+    with deterministic, collision-free names.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    soffice = _require_soffice()
+    directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="offlook-soffice-") as temporary:
+        completed = subprocess.run(
+            [
+                soffice, "--headless", "--norestore", "--convert-to", convert_to,
+                "--outdir", temporary, str(source),
+            ],
+            capture_output=True, timeout=300,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or b"").decode("utf-8", "replace").strip()
+            raise ConversionError(f"LibreOffice conversion failed{': ' + detail if detail else ''}")
+        produced = sorted(Path(temporary).iterdir(), key=_natural_key)
+        if not produced:
+            raise ConversionError("LibreOffice produced no output")
+        outputs: list[Path] = []
+        for index, item in enumerate(produced, 1):
+            stem = source.stem if len(produced) == 1 else f"{source.stem}_{index}"
+            destination = _unique_path(directory, stem, target_extension)
+            try:
+                shutil.move(str(item), str(destination))
+            except OSError as exc:
+                raise ConversionError(f"Cannot move LibreOffice output: {exc}") from exc
+            outputs.append(destination)
+        return tuple(outputs)
+
+
+def _office_to_pdf(source: Path, directory: Path) -> tuple[Path, ...]:
+    """High-fidelity document-to-PDF conversion preserving images and layout."""
+    return _office_convert(source, directory, "pdf", ".pdf")
+
+
+def _office_to_images(source: Path, directory: Path, extension: str) -> tuple[Path, ...]:
+    """Render each presentation slide to an image via LibreOffice."""
+    convert_to = "jpg" if extension == ".jpg" else "png"
+    return _office_convert(source, directory, convert_to, extension)
+
+
 # Target converters keyed by canonical suffix. Each converter maps one source
 # file to zero-or-more output paths inside ``directory``.
-def _convert_single(source: Path, directory: Path, target: str) -> ConversionOutcome:
-    """Convert one source file to ``target`` and return its outcome."""
+def _convert_single(source: Path, directory: Path, target: str, mode: str = "auto") -> ConversionOutcome:
+    """Convert one source file to ``target`` and return its outcome.
+
+    ``mode`` selects fidelity: ``auto`` uses LibreOffice when available and falls
+    back to text-only; ``text`` forces text-only output; ``office`` requires
+    LibreOffice.
+    """
     source = Path(source)
     kind = _source_kind(source)
     extension = normalize_target(target)
+    resolved_mode = normalize_mode(mode)
+    use_office = resolved_mode == "office" or (resolved_mode == "auto" and _office_available())
+    suffix = source.suffix.lower()
     outputs: tuple[Path, ...] = ()
     if extension in (".png", ".jpg", ".bmp", ".gif", ".tiff", ".webp", ".ico"):
         if kind is FileKind.IMAGE:
             outputs = _convert_image_to_image(source, directory, extension)
         elif kind is FileKind.PDF:
             outputs = _convert_pdf_to_images(source, directory, extension)
+        elif kind is FileKind.DOCUMENT and suffix in (".pptx", ".pptm"):
+            if resolved_mode == "text":
+                raise ConversionError("Image output for presentations requires LibreOffice; choose PDF, TXT, or Word")
+            outputs = _office_to_images(source, directory, extension)
         else:
-            raise ConversionError("Only images and PDFs can be converted to image formats")
+            raise ConversionError("Only images, PDFs, and presentations can be converted to image formats")
     elif extension == ".pdf":
         if kind is FileKind.IMAGE:
             outputs = _convert_image_to_pdf(source, directory)
         elif kind in _TEXT_KINDS:
             outputs = _text_to_pdf(source, directory)
-        elif kind is FileKind.DOCUMENT and source.suffix.lower() == ".docx":
-            destination = _unique_path(directory, source.stem, ".pdf")
-            _write_raster_pdf(destination, "\n".join(_docx_paragraphs(source)))
-            outputs = (destination,)
+        elif kind is FileKind.DOCUMENT:
+            if suffix == ".docx":
+                if use_office:
+                    outputs = _office_to_pdf(source, directory)
+                else:
+                    destination = _unique_path(directory, source.stem, ".pdf")
+                    _write_raster_pdf(destination, "\n".join(_docx_paragraphs(source)))
+                    outputs = (destination,)
+            elif suffix in (".pptx", ".pptm"):
+                if use_office:
+                    outputs = _office_to_pdf(source, directory)
+                else:
+                    destination = _unique_path(directory, source.stem, ".pdf")
+                    _write_raster_pdf(destination, "\n".join(_pptx_lines(source)))
+                    outputs = (destination,)
+            elif suffix in (".xlsx", ".xlsm"):
+                if not use_office:
+                    raise ConversionError("Excel to PDF requires LibreOffice; use CSV or TXT instead")
+                outputs = _office_to_pdf(source, directory)
+            else:
+                raise ConversionError("This document type cannot be converted to PDF")
         else:
             raise ConversionError("This file type cannot be converted to PDF")
     elif extension == ".txt":
         if kind in _TEXT_KINDS:
             outputs = _convert_text_to_txt(source, directory)
         elif kind is FileKind.DOCUMENT:
-            if source.suffix.lower() == ".docx":
+            if suffix == ".docx":
                 outputs = _docx_to_text(source, directory, ".txt")
-            elif source.suffix.lower() in (".xlsx", ".xlsm"):
+            elif suffix in (".xlsx", ".xlsm"):
                 outputs = _xlsx_to_target(source, directory, ".txt")
-            elif source.suffix.lower() in (".pptx", ".pptm"):
+            elif suffix in (".pptx", ".pptm"):
                 outputs = _pptx_to_text(source, directory)
             else:
                 raise ConversionError("This document type cannot be converted to text")
@@ -419,8 +574,10 @@ def _convert_single(source: Path, directory: Path, target: str) -> ConversionOut
     elif extension == ".docx":
         if kind in _TEXT_KINDS:
             outputs = _convert_text_to_docx(source, directory)
+        elif kind is FileKind.DOCUMENT and suffix in (".pptx", ".pptm"):
+            outputs = _pptx_to_docx(source, directory)
         else:
-            raise ConversionError("Only text files can be converted to Word documents")
+            raise ConversionError("Only text files and presentations can be converted to Word documents")
     elif extension == ".csv":
         if kind is FileKind.CSV:
             text = _read_text(source)
@@ -430,7 +587,7 @@ def _convert_single(source: Path, directory: Path, target: str) -> ConversionOut
             except OSError as exc:
                 raise ConversionError(f"Cannot write CSV output: {exc}") from exc
             outputs = (destination,)
-        elif kind is FileKind.DOCUMENT and source.suffix.lower() in (".xlsx", ".xlsm"):
+        elif kind is FileKind.DOCUMENT and suffix in (".xlsx", ".xlsm"):
             outputs = _xlsx_to_target(source, directory, ".csv")
         else:
             raise ConversionError("Only spreadsheets can be converted to CSV")
@@ -510,17 +667,23 @@ def _is_image_source(path: Path) -> bool:
         return False
 
 
-def convert_file(source: str | Path, target: str, directory: str | Path | None = None) -> ConversionOutcome:
+def convert_file(
+    source: str | Path,
+    target: str,
+    directory: str | Path | None = None,
+    mode: str = "auto",
+) -> ConversionOutcome:
     """Convert one source file to ``target``, writing outputs next to it by default."""
     source_path = Path(source)
     dest_dir = Path(directory) if directory is not None else source_path.parent
-    return _convert_single(source_path, dest_dir, target)
+    return _convert_single(source_path, dest_dir, target, mode)
 
 
 def convert_files(
     sources: Iterable[str | Path],
     target: str,
     directory: str | Path | None = None,
+    mode: str = "auto",
 ) -> tuple[ConversionOutcome, ...]:
     """Convert several sources; images→PDF combine into one document when possible.
 
@@ -532,6 +695,7 @@ def convert_files(
     if not paths:
         raise ConversionError("Select at least one file to convert")
     extension = normalize_target(target)
+    normalize_mode(mode)
     first_dir = Path(directory) if directory is not None else paths[0].parent
     if extension == ".pdf" and len(paths) > 1 and all(_is_image_source(p) for p in paths):
         from PIL import Image
@@ -554,19 +718,21 @@ def convert_files(
             for image in images:
                 image.close()
         return (ConversionOutcome(paths[0], (destination,)),)
-    return tuple(convert_file(path, extension, directory) for path in paths)
+    return tuple(convert_file(path, extension, directory, mode) for path in paths)
 
 
-def reachable_targets(sources: Iterable[str | Path]) -> tuple[str, ...]:
+def reachable_targets(sources: Iterable[str | Path], mode: str = "auto") -> tuple[str, ...]:
     """Return targets every selected file can reach, in stable wheel order.
 
     The wheel hides targets that are impossible for the current selection; this
     function computes the intersection so a mixed selection shows only safe,
-    shared targets.
+    shared targets. ``mode`` follows the same ``auto``/``text``/``office`` rules
+    as :func:`convert_file`.
     """
     paths = [Path(source) for source in sources]
     if not paths:
         return ()
+    resolved_mode = normalize_mode(mode)
     per_file: list[set[str]] = []
     for path in paths:
         try:
@@ -584,9 +750,17 @@ def reachable_targets(sources: Iterable[str | Path]) -> tuple[str, ...]:
             if suffix == ".docx":
                 per_file.append({".pdf", ".txt"})
             elif suffix in (".xlsx", ".xlsm"):
-                per_file.append({".csv", ".txt"})
+                targets = {".csv", ".txt"}
+                if resolved_mode in ("auto", "office"):
+                    targets.add(".pdf")
+                per_file.append(targets)
             elif suffix in (".pptx", ".pptm"):
-                per_file.append({".txt"})
+                if resolved_mode == "text":
+                    per_file.append({".pdf", ".txt", ".docx"})
+                elif resolved_mode == "office":
+                    per_file.append({".pdf", ".png", ".jpg", ".txt"})
+                else:
+                    per_file.append({".pdf", ".png", ".jpg", ".txt", ".docx"})
             else:
                 per_file.append(set())
         else:
@@ -605,6 +779,7 @@ __all__ = [
     "convert_files",
     "format_group",
     "format_label",
+    "normalize_mode",
     "normalize_target",
     "reachable_targets",
     "target_formats",

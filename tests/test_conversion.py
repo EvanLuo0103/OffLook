@@ -8,6 +8,7 @@ from offlook.core import (
     ConversionError,
     convert_file,
     convert_files,
+    normalize_mode,
     normalize_target,
     reachable_targets,
     target_formats,
@@ -19,6 +20,13 @@ try:
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
+
+try:
+    import pptx  # noqa: F401
+
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
 
 
 class ConversionTests(unittest.TestCase):
@@ -73,6 +81,41 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(normalize_target(".PDF"), ".pdf")
         with self.assertRaises(ConversionError):
             normalize_target("exe")
+
+    def test_normalize_mode(self):
+        self.assertEqual(normalize_mode(None), "auto")
+        self.assertEqual(normalize_mode("office"), "office")
+        with self.assertRaises(ConversionError):
+            normalize_mode("fancy")
+
+    def test_reachable_targets_mode_aware_for_presentation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "deck.pptx"
+            source.write_bytes(b"")  # extension-based classification; no content read
+            self.assertEqual(reachable_targets([source], "text"), (".pdf", ".txt", ".docx"))
+            self.assertEqual(reachable_targets([source], "office"), (".pdf", ".png", ".jpg", ".txt"))
+            self.assertEqual(reachable_targets([source], "auto"), (".pdf", ".png", ".jpg", ".txt", ".docx"))
+
+    @unittest.skipUnless(HAS_PPTX, "python-pptx is not installed")
+    def test_pptx_text_mode_conversions(self):
+        from pptx import Presentation
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+            slide.shapes.title.text = "Slide title"
+            source = root / "deck.pptx"
+            presentation.save(str(source))
+            txt = convert_file(source, "txt")
+            self.assertEqual(txt.outputs[0].suffix, ".txt")
+            self.assertIn("Slide title", txt.outputs[0].read_text(encoding="utf-8"))
+            docx = convert_file(source, "docx")
+            self.assertEqual(docx.outputs[0].suffix, ".docx")
+            pdf = convert_file(source, "pdf", mode="text")
+            self.assertEqual(pdf.outputs[0].suffix, ".pdf")
+            self.assertTrue(pdf.outputs[0].is_file())
 
     def test_reachable_targets_filtered_by_source(self):
         self.assertIn(".pdf", reachable_targets(["a.png"]))

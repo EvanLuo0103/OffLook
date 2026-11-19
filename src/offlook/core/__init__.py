@@ -19,6 +19,7 @@ from .conversion import (
     convert_files,
     format_group,
     format_label,
+    normalize_mode,
     normalize_target,
     reachable_targets,
     target_formats,
@@ -49,6 +50,6 @@ __all__ = [
     "PreviewConfig", "PreviewError", "SearchResult", "ToolCall", "ToolStep", "TransferResult",
     "convert_file", "convert_files", "copy_files", "create_context", "default_tools",
     "filter_files", "find_files", "format_group", "format_label", "list_folder", "move_files",
-    "normalize_target", "organize_by_kind", "parse_hotkey", "reachable_targets",
+    "normalize_mode", "normalize_target", "organize_by_kind", "parse_hotkey", "reachable_targets",
     "run_instruction", "target_formats",
 ]

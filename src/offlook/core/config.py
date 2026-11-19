@@ -30,6 +30,7 @@ class PreviewConfig:
     hotkey: str = "Ctrl+Space"
     search_hotkey: str = "Ctrl+Q"
     convert_hotkey: str = "Alt+C"
+    convert_mode: str = "auto"
     ai_enabled: bool = False
     ai_base_url: str = "https://api.deepseek.com"
     ai_api_key: str = ""
@@ -56,6 +57,8 @@ class PreviewConfig:
         except HotkeyError as exc:
             raise ConfigError(f"Invalid convert hotkey setting: {exc}") from exc
         object.__setattr__(self, "convert_hotkey", convert_hotkey)
+        if self.convert_mode not in ("auto", "text", "office"):
+            raise ConfigError("convert_mode must be 'auto', 'text', or 'office'")
         if not isinstance(self.ai_base_url, str) or not self.ai_base_url.strip():
             raise ConfigError("ai_base_url must be a nonblank HTTP(S) URL")
         ai_base_url = self.ai_base_url.strip().rstrip("/")

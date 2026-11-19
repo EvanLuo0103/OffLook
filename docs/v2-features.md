@@ -30,21 +30,36 @@ Output files are written next to the source and never overwrite an existing
 file (collisions get a ` (1)` suffix). When the target is PDF and every selected
 source is an image, the images are combined into a single PDF.
 
-Supported conversions (local only, using the declared Pillow and pypdfium2
-dependencies):
+### Conversion quality modes
+
+The **Convert files** card exposes a **Quality** selector with three modes, so
+the user decides whether to keep images/layout:
+
+| Mode | Behavior |
+| --- | --- |
+| `auto` (default) | Use LibreOffice for high-fidelity document conversion when it is installed; otherwise fall back to text-only (or report a clear error where no text fallback exists). |
+| `text` | Text-only conversion: drops images, graphics, and slide layout; produces plain text/PDF/Word from document text. |
+| `office` | Require LibreOffice; fail with a clear message if it is not installed. |
+
+Supported conversions (local only; Pillow and pypdfium2 are the hard
+dependencies, LibreOffice and `python-docx`/`openpyxl`/`python-pptx` are
+optional backends):
 
 | Source | Targets |
 | --- | --- |
 | Images (PNG/JPEG/BMP/GIF/TIFF/WebP/ICO) | PNG, JPEG, BMP, GIF, TIFF, WebP, ICO, PDF |
 | PDF | PNG, JPEG, BMP, TIFF |
 | Text / Markdown / Code / CSV | PDF, TXT, Word (.docx) |
-| Word (.docx) | PDF, TXT |
-| Excel (.xlsx) | CSV, TXT |
-| PowerPoint (.pptx) | TXT |
+| Word (.docx) | PDF (text or LibreOffice), TXT |
+| Excel (.xlsx) | CSV, TXT, PDF (LibreOffice) |
+| PowerPoint (.pptx) | TXT, Word (.docx, text) · PDF, PNG, JPEG (text or LibreOffice) |
 
-Word, Excel, and PowerPoint conversion uses the optional `python-docx`,
-`openpyxl`, and `python-pptx` packages and raises a clear `ConversionError` when
-they are not installed; every other target keeps working without them.
+For presentations the `text` mode offers PDF/TXT/Word from slide text; the
+`office` mode additionally renders each slide to PNG/JPEG and produces a
+layout-preserving PDF through LibreOffice. Word, Excel, and PowerPoint text
+extraction uses the optional `python-docx`, `openpyxl`, and `python-pptx`
+packages and raises a clear `ConversionError` when they are missing; every other
+target keeps working without them.
 
 ### Implementation
 
@@ -119,6 +134,7 @@ before results are returned to the model.
 | Field | Default |
 | --- | --- |
 | `convert_hotkey` | `Alt+C` |
+| `convert_mode` | `auto` (also `text` and `office`) |
 | `ai_enabled` | `False` |
 | `ai_base_url` | `https://api.deepseek.com` |
 | `ai_api_key` | `""` |
@@ -154,13 +170,15 @@ The API key is stored in the local configuration file in plain text
 ## Testing
 
 `tests/test_conversion.py`, `tests/test_file_ops.py`, and `tests/test_ai.py`
-add 18 tests covering conversion output and collision handling, multi-format
+add tests covering conversion output and collision handling, conversion modes
+(`auto`/`text`/`office`), presentation text-mode conversion, multi-format
 filtering, move/copy/organize, and the AI tool registry and tool-calling loop.
 
 ## Known limitations
 
 - The API key is stored in plain text in the local configuration file.
-- Word/Excel/PowerPoint conversion requires optional third-party packages that
-  are not part of `requirements.txt`.
+- Word/Excel/PowerPoint text extraction requires optional third-party packages
+  that are not part of `requirements.txt`; high-fidelity PDF/image conversion
+  requires a LibreOffice installation.
 - The AI assistant is the only network feature and only makes requests to the
   endpoint the user configures.

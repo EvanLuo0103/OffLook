@@ -64,7 +64,7 @@ The **Help** button or F1 opens the offline guide. If the shortcut does not resp
 
 ## 6. Convert, filter, and use AI
 
-**Convert files**: select one or more files in File Explorer and press **Alt+C** (change it in **Shortcut settings**) to open the format wheel, then choose a target. Alternatively click **Choose files to convert**. Output files appear next to the sources and never overwrite existing files.
+**Convert files**: select one or more files in File Explorer and press **Alt+C** (change it in **Shortcut settings**) to open the format wheel, then choose a target. Alternatively click **Choose files to convert**. Output files appear next to the sources and never overwrite existing files. The **Quality** selector controls fidelity: `auto` keeps images/layout when LibreOffice is installed, `text` is text-only, and `office` requires LibreOffice (used for layout-preserving PowerPoint/Word/Excel PDFs and slide-to-image rendering).
 
 **Filter files**: in the **Filter files** card, choose a folder and check any combination of formats, then click **Apply filter** to list matching files recursively.
 

@@ -64,6 +64,7 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | preview_timeout_seconds | 5 seconds |
 | hotkey_enabled / hotkey | True / Ctrl+Space; the UI registers before saving |
 | search_hotkey / convert_hotkey | Ctrl+Q / Alt+C (the conversion wheel shortcut) |
+| convert_mode | auto; also text (text-only) and office (require LibreOffice) |
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
 | ai_enabled / ai_base_url / ai_api_key / ai_model | False / https://api.deepseek.com / "" / deepseek-chat |
@@ -79,22 +80,34 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 
 ## Convert, filter, and manage files
 
-Conversion runs locally with Pillow and pypdfium2. `convert_file` converts one
-source; `convert_files` converts several and, when the target is PDF and every
-source is an image, combines them into one document. Outputs are written next to
-the source (or into the directory you pass) and never overwrite existing files.
+Conversion runs locally with Pillow and pypdfium2, plus optional LibreOffice
+and document backends. `convert_file` converts one source; `convert_files`
+converts several and, when the target is PDF and every source is an image,
+combines them into one document. Outputs are written next to the source (or into
+the directory you pass) and never overwrite existing files.
 
 ```python
-from offlook.core import convert_file, convert_files, reachable_targets, target_formats
-print(target_formats())                # every canonical target suffix
-print(reachable_targets(["a.png"]))    # targets that source can actually reach
+from offlook.core import convert_file, convert_files, reachable_targets, target_formats, normalize_mode
+print(target_formats())                      # every canonical target suffix
+print(reachable_targets(["a.png"]))          # targets that source can actually reach
 outcome = convert_file("a.png", "pdf")
 print(outcome.outputs)
 ```
 
-Word/Excel conversion uses the optional `python-docx` and `openpyxl` packages and
-raises a clear `ConversionError` when they are missing. Safe file management is
-in `offlook.core.file_ops`:
+`convert_file`/`convert_files`/`reachable_targets` accept a `mode` argument:
+`"auto"` (default) uses LibreOffice for high-fidelity document conversion when it
+is installed and falls back to text-only; `"text"` forces text-only output; and
+`"office"` requires LibreOffice. For presentations, `"text"` offers PDF/TXT/Word
+from slide text while `"office"` also renders slides to PNG/JPEG and produces a
+layout-preserving PDF.
+
+```python
+outcome = convert_file("deck.pptx", "pdf", mode="office")  # requires LibreOffice
+```
+
+Word/Excel/PowerPoint text extraction uses the optional `python-docx`,
+`openpyxl`, and `python-pptx` packages and raises a clear `ConversionError` when
+they are missing. Safe file management is in `offlook.core.file_ops`:
 
 ```python
 from offlook.core import move_files, organize_by_kind, FileKind
