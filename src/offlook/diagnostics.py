@@ -9,24 +9,24 @@ from offlook.platforms.windows_hotkey import HotkeyListener
 from offlook.platforms.windows_selection import ExplorerSelectionProvider
 
 
-def run_search_shortcut_diagnostic() -> int:
-    """Wait for Ctrl+Q and report whether one local Explorer folder is selected."""
-    listener = HotkeyListener("Ctrl+Q")
+def run_search_shortcut_diagnostic(combo: str) -> int:
+    """Test the configured key and local Explorer folder selection without a GUI."""
+    listener = HotkeyListener(combo)
     listener.start()
     provider = ExplorerSelectionProvider()
-    print("OffLook Ctrl+Q diagnostic is running.")
-    print("Select exactly one local folder in File Explorer, then press Ctrl+Q.")
+    print(f"OffLook {listener.combo} diagnostic is running.")
+    print(f"Select one local folder, or open it with nothing selected, in File Explorer; then press {listener.combo}.")
     print("Press Ctrl+C to stop.")
     try:
         while True:
             for event in listener.poll():
                 if event["type"] == "ready":
-                    print("PASS: OffLook registered Ctrl+Q.")
+                    print(f"PASS: OffLook registered {listener.combo}.")
                 elif event["type"] == "error":
-                    print(f"FAIL: OffLook could not register Ctrl+Q: {event['message']}")
+                    print(f"FAIL: OffLook could not register {listener.combo}: {event['message']}")
                     return 2
                 elif event["type"] == "hotkey":
-                    print("PASS: OffLook detected Ctrl+Q.")
+                    print(f"PASS: OffLook detected {event.get('combo', listener.combo)}.")
                     try:
                         path = provider.get_selected_file(
                             event["foreground_hwnd"], allow_folder=True

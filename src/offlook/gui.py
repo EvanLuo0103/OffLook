@@ -1,13 +1,14 @@
 """Main-thread application coordinator; parsing and native services stay off Tk."""
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from offlook.core.config import PreviewConfig
 from offlook.core.errors import OffLookError
 from offlook.core.hotkeys import parse_hotkey
 from offlook.preview.models import RenderRequest
@@ -15,8 +16,25 @@ from offlook.preview.worker import WorkerRunner
 from offlook.ui.theme import COLORS
 
 
+@dataclass
+class _PendingHotkey:
+    """One candidate and the saved value against which it was requested."""
+
+    listener: object
+    persist: bool
+    combo: str
+    saved_combo: str
+
+
 class PreviewApplication:
     """Coordinate one main window, one preview, and transactional native settings."""
+
+    SHORTCUT_ACTIONS = {
+        'preview': ('hotkey', 'Preview'),
+        'search': ('search_hotkey', 'Search files'),
+        'diff': ('diff_hotkey', 'Git comparison'),
+        'convert': ('convert_hotkey', 'Convert files'),
+    }
 
     def __init__(self, context, *, renderers=None, resident=False, always_on_top=None,
                  background=False, config_path=None):
@@ -37,16 +55,21 @@ class PreviewApplication:
         self.root.geometry(f'{round(720*self._scale)}x{round(620*self._scale)}')
         self.root.minsize(round(640*self._scale), round(520*self._scale))
         self.runner = WorkerRunner(renderers)
-        self.listener = self._pending_listener = self.search_listener = None
-        self.diff_listener = None
-        self._pending_config = None
-        self._pending_persist = False
+        self.listeners = {}
+        self._pending_listeners = {}
+        self._deferred_starts = {}
         self._retiring_listeners = []
-        self._hotkey_transaction_active = False
+        self._attempted_hotkeys = {}
+        self._hotkey_errors = {}
+        self._feedback_action = None
+        self._saving_hotkeys = False
+        self._observed_config = context.config.current
+        self._selected_action = 'preview'
+        self._drafts = {action: getattr(context.config.current, field)
+                        for action, (field, _) in self.SHORTCUT_ACTIONS.items()}
         self._recording = False
+        self._record_action = None
         self._record_original = ''
-        self._recording_convert = False
-        self._convert_original = ''
         self._path_thread = None
         self._path_results = queue.Queue()
         self._search_thread = None
@@ -59,7 +82,6 @@ class PreviewApplication:
         self._convert_results = queue.Queue()
         self._ai_thread = None
         self._ai_results = queue.Queue()
-        self.convert_listener = None
         self.convert_wheel = None
         self._convert_paths = ()
         self.diff_window = None
@@ -73,8 +95,11 @@ class PreviewApplication:
         self.exit_code = 0
         self.tray = self.startup = self.help_window = None
         self.status = tk.StringVar(value='All files stay on your device. Nothing is uploaded.')
-        self.hotkey_status = tk.StringVar(value='Shortcut not enabled')
-        self.combo = tk.StringVar(value=context.config.current.hotkey)
+        self.shortcut_statuses = {action: tk.StringVar(value='Disabled')
+                                  for action in self.SHORTCUT_ACTIONS}
+        self.shortcut_feedback = tk.StringVar(value='')
+        self.action = tk.StringVar(value=self.SHORTCUT_ACTIONS['preview'][1])
+        self.combo = tk.StringVar(value=self._drafts['preview'])
         self.enabled = tk.BooleanVar(value=context.config.current.hotkey_enabled)
         self.autostart = tk.BooleanVar(value=False)
         self._build_main()
@@ -95,7 +120,7 @@ class PreviewApplication:
             self.root.withdraw()
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
-            self._configure_hotkey()
+            self._reconcile_hotkeys()
         self.root.after(25, self._poll)
         self.root.after_idle(self._clamp_main)
 
@@ -116,14 +141,15 @@ class PreviewApplication:
         canvas.pack(side='left', fill='both', expand=True)
         content = ttk.Frame(canvas, padding=(pad,0,pad,pad))
         item = canvas.create_window(0,0,window=content,anchor='nw')
+        self.main_canvas, self.main_content = canvas, content
         content.bind('<Configure>', lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(item,width=event.width))
         primary = self._card(content, 'Quick preview')
         ttk.Button(primary, text='Choose file', style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
-        ttk.Label(primary, textvariable=self.hotkey_status, style='Card.TLabel', wraplength=560).pack(anchor='w')
+        ttk.Label(primary, textvariable=self.shortcut_statuses['preview'], style='Card.TLabel', wraplength=560).pack(anchor='w')
         comparison = self._card(content, 'Git comparison')
         ttk.Button(comparison, text='Compare with Git HEAD', command=self._choose_for_diff).pack(anchor='w', pady=8)
-        ttk.Label(comparison, text='Shortcut: Ctrl+Alt+D in File Explorer on a tracked text file.',
+        ttk.Label(comparison, textvariable=self.shortcut_statuses['diff'],
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
         self.diff_status = tk.StringVar(value='Select a tracked text file to compare with Git HEAD.')
         ttk.Label(comparison, textvariable=self.diff_status, style='Card.Muted.TLabel',
@@ -144,6 +170,7 @@ class PreviewApplication:
         ttk.Label(conversion, textvariable=self.convert_status, style='Card.Muted.TLabel',
                   wraplength=560).pack(anchor='w', pady=(6, 0))
         search = self._card(content, 'Search files')
+        self.search_card = search
         search_row = ttk.Frame(search, style='Card.TFrame')
         search_row.pack(fill='x', pady=4)
         ttk.Button(search_row, text='Choose folder', command=self._choose_search_folder).pack(side='left')
@@ -169,7 +196,7 @@ class PreviewApplication:
         self.search_tree.bind('<Double-1>', self._open_search_result)
         self.search_status = tk.StringVar(value='Choose a folder to search recursively.')
         ttk.Label(search, textvariable=self.search_status, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
-        ttk.Label(search, text='Explorer shortcut: select a folder and press Ctrl+Q.',
+        ttk.Label(search, textvariable=self.shortcut_statuses['search'],
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(2, 0))
         filter_card = self._card(content, 'Filter files')
         filter_row = ttk.Frame(filter_card, style='Card.TFrame')
@@ -236,8 +263,13 @@ class PreviewApplication:
                                  font=self.fonts['body'], state='disabled', padx=4, pady=4)
         self.ai_output.pack(fill='x', pady=(6, 0))
         settings = self._card(content, 'Shortcut settings')
-        self.enable_control = ttk.Checkbutton(settings,text='Enable global shortcut',variable=self.enabled)
-        self.enable_control.pack(anchor='w',pady=4)
+        self.enable_control = ttk.Checkbutton(settings, text='Enable global shortcuts',
+                                               variable=self.enabled, command=self._set_hotkeys_enabled)
+        self.enable_control.pack(anchor='w', pady=4)
+        self.action_selector = ttk.Combobox(settings, textvariable=self.action, state='readonly',
+                                            values=tuple(label for _, label in self.SHORTCUT_ACTIONS.values()))
+        self.action_selector.pack(fill='x', pady=4)
+        self.action_selector.bind('<<ComboboxSelected>>', self._select_action)
         self.combo_entry = ttk.Entry(settings,textvariable=self.combo,state='readonly',font=self.fonts['body'])
         self.combo_entry.pack(fill='x',pady=6)
         self.combo_entry.bind('<KeyPress>', self._capture)
@@ -245,23 +277,14 @@ class PreviewApplication:
         row.pack(fill='x')
         self.record_button=ttk.Button(row,text='Record shortcut',command=self._record)
         self.apply_button=ttk.Button(row,text='Apply',command=self._apply_hotkey)
-        self.reset_button=ttk.Button(row,text='Reset default',command=lambda:self.combo.set('Ctrl+Space'))
+        self.reset_button=ttk.Button(row,text='Reset default',command=self._reset_hotkey)
         for button in (self.record_button,self.apply_button,self.reset_button):
             button.pack(side='left',padx=(0,8))
         ttk.Label(settings,text='Ctrl or Alt, with optional Shift; letters, digits, Space, F1–F11.',style='Card.TLabel',wraplength=560).pack(anchor='w',pady=(8,0))
-        ttk.Separator(settings, orient='horizontal').pack(fill='x', pady=12)
-        ttk.Label(settings,text='Convert shortcut (files → format wheel)',style='Card.TLabel').pack(anchor='w')
-        self.convert_combo = tk.StringVar(value=self.context.config.current.convert_hotkey)
-        self.convert_entry = ttk.Entry(settings,textvariable=self.convert_combo,state='readonly',font=self.fonts['body'])
-        self.convert_entry.pack(fill='x',pady=6)
-        self.convert_entry.bind('<KeyPress>', self._capture_convert)
-        convert_row=ttk.Frame(settings,style='Card.TFrame')
-        convert_row.pack(fill='x')
-        self.convert_record_button=ttk.Button(convert_row,text='Record',command=self._record_convert)
-        self.convert_apply_button=ttk.Button(convert_row,text='Apply',command=self._apply_convert)
-        self.convert_reset_button=ttk.Button(convert_row,text='Reset default',command=lambda:self.convert_combo.set('Alt+C'))
-        for button in (self.convert_record_button,self.convert_apply_button,self.convert_reset_button):
-            button.pack(side='left',padx=(0,8))
+        ttk.Label(settings, text='The shared switch applies immediately. Apply saves only the selected action.',
+                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
+        ttk.Label(settings, textvariable=self.shortcut_feedback,
+                  style='Card.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
         integration=self._card(content,'System integration')
         ttk.Checkbutton(integration,text='Start when signing in to Windows',variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
         self.path_button=ttk.Button(integration,text='Add to PATH',command=self._add_path)
@@ -324,7 +347,7 @@ class PreviewApplication:
         if self._diff_thread and self._diff_thread.is_alive():
             return
         from offlook.core.git_diff import compare_with_head
-        self.status.set('Comparing the working file with Git HEAD…')
+        self.diff_status.set('Comparing the working file with Git HEAD…')
         def work():
             try:
                 self._diff_results.put((compare_with_head(path), None))
@@ -519,51 +542,6 @@ class PreviewApplication:
         self.ai_output.insert('1.0', value)
         self.ai_output.configure(state='disabled')
 
-    def _record_convert(self):
-        """Capture a new conversion shortcut draft."""
-        self._convert_original = self.convert_combo.get()
-        self._recording_convert = True
-        self.status.set('Press a key combination for conversion; Esc to cancel.')
-        self.convert_entry.focus_set()
-
-    def _capture_convert(self, event):
-        """Normalize a conversion shortcut chord and leave it as an unsaved draft."""
-        if not self._recording_convert:
-            return
-        if event.keysym == 'Escape':
-            self.convert_combo.set(self._convert_original)
-            self._recording_convert = False
-            return 'break'
-        if event.keysym in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R', 'Shift_L', 'Shift_R'):
-            return 'break'
-        import win32api
-        if win32api.GetAsyncKeyState(0x5B) & 0x8000 or win32api.GetAsyncKeyState(0x5C) & 0x8000:
-            self.status.set('Windows-reserved shortcuts are not supported')
-            return 'break'
-        tokens = []
-        if event.state & 4: tokens.append('Ctrl')
-        if event.state & (8 | 0x20000): tokens.append('Alt')
-        if event.state & 1: tokens.append('Shift')
-        key = 'Space' if event.keysym == 'space' else event.keysym
-        try:
-            self.convert_combo.set(parse_hotkey('+'.join(tokens + [key])).canonical)
-            self._recording_convert = False
-            self.status.set('Recorded. Click Apply to activate.')
-        except OffLookError as exc:
-            self.status.set(str(exc))
-        return 'break'
-
-    def _apply_convert(self):
-        """Persist the conversion shortcut and swap the active listener."""
-        try:
-            spec = parse_hotkey(self.convert_combo.get())
-            desired = replace(self.context.config.current, convert_hotkey=spec.canonical)
-            self.context.config.update(desired, persist=True)
-            self._restart_convert_listener()
-            self.status.set('Convert shortcut applied')
-        except OffLookError as exc:
-            self.status.set(str(exc))
-
     def _toggle_startup(self):
         """Change logon registration only on an explicit user action."""
         if self.startup is None:
@@ -595,152 +573,376 @@ class PreviewApplication:
             return 'break'
 
     def _help(self):
-        """Keep exactly one locally rendered help window with the active shortcut."""
+        """Keep a single Help view whose shortcut summary follows live state."""
+        if self.closing:
+            return
         from offlook.ui.help import show_help
         if self.help_window is not None and self.help_window.winfo_exists():
-            self.help_window.destroy()
-        combo=self.listener.combo if self.listener is not None else 'Disabled'
-        self.help_window=show_help(self.root,hotkey=combo)
+            self.help_window.lift()
+            return
+        self.help_window = show_help(self.root, shortcuts=self._shortcut_summary())
+
+    def _shortcut_summary(self):
+        return {action: value.get() for action, value in self.shortcut_statuses.items()}
+
+    def _refresh_hotkey_status(self):
+        """Expose actual ownership separately from desired settings and feature results."""
+        config = self.context.config.current
+        for action, (field, _) in self.SHORTCUT_ACTIONS.items():
+            configured = getattr(config, field)
+            active = self.listeners.get(action)
+            pending = self._pending_listeners.get(action)
+            deferred = self._deferred_starts.get(action)
+            error = self._hotkey_errors.get(action)
+            if not config.hotkey_enabled or not self.resident or self.closing:
+                text = 'Disabled'
+            elif active is not None:
+                text = active.combo
+                if configured != active.combo:
+                    text += f'; configured {configured} is not active'
+                if pending is not None or deferred is not None:
+                    target = pending.combo if pending is not None else deferred[0]
+                    text += f'; Registering {target}…'
+                if error:
+                    text += f'; Unavailable ({error[0]}): {error[1]}'
+            elif pending is not None or deferred is not None:
+                target = pending.combo if pending is not None else deferred[0]
+                text = f'Registering {target}…'
+            else:
+                reason = error[1] if error else 'not registered'
+                text = f'Unavailable ({configured}): {reason}'
+                if error and error[0] != configured:
+                    text += f'; attempted {error[0]}'
+            self.shortcut_statuses[action].set(text)
+        self._settings_busy()
+        if self.help_window is not None and self.help_window.winfo_exists():
+            from offlook.ui.help import update_help_shortcuts
+            update_help_shortcuts(self.help_window, shortcuts=self._shortcut_summary())
+
+    def _select_action(self, _event=None):
+        """Switch only the displayed draft, never a saved binding."""
+        self._cancel_recording()
+        self._drafts[self._selected_action] = self.combo.get()
+        self._selected_action = next(action for action, (_, label) in self.SHORTCUT_ACTIONS.items()
+                                     if label == self.action.get())
+        self.combo.set(self._drafts[self._selected_action])
+
+    def _reset_hotkey(self):
+        self._cancel_recording()
+        field = self.SHORTCUT_ACTIONS[self._selected_action][0]
+        self._drafts[self._selected_action] = getattr(PreviewConfig(), field)
+        self.combo.set(self._drafts[self._selected_action])
 
     def _record(self):
-        """Capture only focused Tk key events, never install a global keyboard hook."""
-        self._record_original=self.combo.get()
-        self._recording=True
-        self.status.set('Press a key combination; Esc to cancel.')
+        """Capture focused Tk events only, without a global keyboard hook."""
+        self._cancel_recording()
+        self._record_original = self.combo.get()
+        self._record_action = self._selected_action
+        self._recording = True
+        self.shortcut_feedback.set('Press a key combination; Esc to cancel.')
         self.combo_entry.focus_set()
 
-    def _capture(self,event):
-        """Normalize a complete keyboard chord and leave it as an unsaved draft."""
+    def _cancel_recording(self):
+        if self._recording:
+            self._drafts[self._record_action] = self._record_original
+            if self._record_action == self._selected_action:
+                self.combo.set(self._record_original)
+        self._recording = False
+        self._record_action = None
+
+    def _record_combo(self, combo):
+        canonical = parse_hotkey(combo).canonical
+        self._drafts[self._record_action] = canonical
+        self.combo.set(canonical)
+        self._recording = False
+        self._record_action = None
+        self.shortcut_feedback.set('Recorded. Click Apply to save the selected shortcut.')
+
+    def _capture(self, event):
+        """Normalize a complete chord into the selected unsaved draft."""
         if not self._recording:
             return
-        if event.keysym=='Escape':
-            self.combo.set(self._record_original)
-            self._recording=False
+        if event.keysym == 'Escape':
+            self._cancel_recording()
             return 'break'
-        if event.keysym in ('Control_L','Control_R','Alt_L','Alt_R','Shift_L','Shift_R'):
+        if event.keysym in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R', 'Shift_L', 'Shift_R'):
             return 'break'
         import win32api
         if win32api.GetAsyncKeyState(0x5B)&0x8000 or win32api.GetAsyncKeyState(0x5C)&0x8000:
-            self.status.set('Windows-reserved shortcuts are not supported')
+            self.shortcut_feedback.set('Windows-reserved shortcuts are not supported')
             return 'break'
-        tokens=[]
+        tokens = []
         if event.state&4: tokens.append('Ctrl')
         if event.state&(8|0x20000): tokens.append('Alt')
         if event.state&1: tokens.append('Shift')
-        key='Space' if event.keysym=='space' else event.keysym
+        key = 'Space' if event.keysym == 'space' else event.keysym
         try:
-            self.combo.set(parse_hotkey('+'.join(tokens+[key])).canonical)
-            self._recording=False
-            self.status.set('Recorded. Click Apply to activate.')
+            self._record_combo('+'.join(tokens + [key]))
         except OffLookError as exc:
-            self.status.set(str(exc))
+            self.shortcut_feedback.set(str(exc))
         return 'break'
 
-    def _settings_busy(self,busy):
-        """Prevent overlapping shortcut transactions."""
-        for widget in (self.enable_control,self.record_button,self.apply_button,self.reset_button):
+    def _settings_busy(self):
+        """Disable shared controls only while registration work is unsettled."""
+        busy = bool(self._pending_listeners or self._deferred_starts) or self.closing
+        for widget in (self.enable_control, self.action_selector, self.record_button,
+                       self.apply_button, self.reset_button):
             widget.state(['disabled'] if busy else ['!disabled'])
 
-    def _apply_hotkey(self):
-        """Validate the draft; persistence happens only after candidate registration."""
+    def _save_hotkey_config(self, config):
+        self._saving_hotkeys = True
         try:
-            spec=parse_hotkey(self.combo.get())
-            desired=replace(self.context.config.current,hotkey=spec.canonical,hotkey_enabled=self.enabled.get())
-            self._begin_hotkey(desired,persist=True)
+            self.context.config.update(config, persist=True)
+        finally:
+            self._saving_hotkeys = False
+        self._observed_config = self.context.config.current
+
+    def _apply_hotkey(self):
+        """Validate all three bindings before registration or persistence."""
+        self._cancel_recording()
+        action = self._selected_action
+        field, label = self.SHORTCUT_ACTIONS[action]
+        self._drafts[action] = self.combo.get()
+        try:
+            spec = parse_hotkey(self.combo.get())
+            desired = replace(self.context.config.current, **{field: spec.canonical})
+            self._drafts[action] = spec.canonical
+            self.combo.set(spec.canonical)
+            if not desired.hotkey_enabled or not self.resident:
+                self._save_hotkey_config(desired)
+                self._hotkey_errors.pop(action, None)
+                self.shortcut_feedback.set(f'{label} shortcut saved. Global shortcuts are disabled.')
+                self._refresh_hotkey_status()
+            else:
+                self._begin_hotkey(action, spec.canonical, persist=True)
         except OffLookError as exc:
-            self.status.set(str(exc))
+            self.shortcut_feedback.set(f'{label}: {exc}')
+            self._feedback_action = action
 
-    def _configure_hotkey(self):
-        """Honor an externally changed config without writing it a second time."""
-        self._begin_hotkey(self.context.config.current,persist=False)
+    def _set_hotkeys_enabled(self):
+        """Persist the immediate shared gate before changing native ownership."""
+        config = self.context.config.current
+        requested = self.enabled.get()
+        try:
+            self._save_hotkey_config(replace(config, hotkey_enabled=requested))
+        except OffLookError as exc:
+            self.enabled.set(config.hotkey_enabled)
+            self.shortcut_feedback.set(str(exc))
+            return
+        self._cancel_recording()
+        self._attempted_hotkeys.clear()
+        self._hotkey_errors.clear()
+        self._feedback_action = None
+        self.shortcut_feedback.set('Global shortcuts enabled; see each action’s availability.'
+                                   if requested else 'Global shortcuts disabled.')
+        self._reconcile_hotkeys()
 
-    def _config_changed(self,event):
-        """Avoid recursive registration from synchronous config.changed callbacks."""
-        if self.resident and not self._hotkey_transaction_active:
-            self._configure_hotkey()
+    def _config_changed(self, event):
+        """Invalidate superseded edits but preserve unrelated latest configuration."""
+        config = self.context.config.current
+        previous = self._observed_config
+        self._observed_config = config
+        if self._saving_hotkeys or self.closing:
+            return
+        gate_changed = config.hotkey_enabled != previous.hotkey_enabled
+        changed = [action for action, (field, _) in self.SHORTCUT_ACTIONS.items()
+                   if getattr(config, field) != getattr(previous, field)]
+        if not gate_changed and not changed:
+            return
+        self._cancel_recording()
+        self._drafts[self._selected_action] = self.combo.get()
+        for action in changed:
+            field = self.SHORTCUT_ACTIONS[action][0]
+            if self._drafts[action] == getattr(previous, field):
+                self._drafts[action] = getattr(config, field)
+            pending = self._pending_listeners.pop(action, None)
+            if pending is not None:
+                self._retire(action, pending.listener)
+            self._deferred_starts.pop(action, None)
+            self._attempted_hotkeys.pop(action, None)
+            self._hotkey_errors.pop(action, None)
+        if gate_changed:
+            self._attempted_hotkeys.clear()
+            self._hotkey_errors.clear()
+        self.combo.set(self._drafts[self._selected_action])
+        self.enabled.set(config.hotkey_enabled)
+        self._reconcile_hotkeys()
 
-    def _retire(self,listener):
-        """Keep stopped listeners referenced until unregister errors are consumed."""
+    def _retire(self, action, listener):
+        """Retain native ownership until errors are drained and the thread stops."""
         if listener is not None:
             listener.stop()
-            self._retiring_listeners.append(listener)
+            if not any(item is listener for _, item in self._retiring_listeners):
+                self._retiring_listeners.append((action, listener))
 
-    def _begin_hotkey(self,desired,*,persist):
-        """Keep the old listener working while a different combination is tested."""
-        if self._hotkey_transaction_active or self.closing:
+    def _stop_hotkeys(self):
+        for action, listener in self.listeners.items():
+            self._retire(action, listener)
+        for action, pending in self._pending_listeners.items():
+            self._retire(action, pending.listener)
+        self.listeners.clear()
+        self._pending_listeners.clear()
+        self._deferred_starts.clear()
+
+    def _reconcile_hotkeys(self):
+        """Attempt each desired binding independently, without automatic retries."""
+        config = self.context.config.current
+        if self.closing or not self.resident or not config.hotkey_enabled:
+            self._stop_hotkeys()
+        else:
+            for action, (field, _) in self.SHORTCUT_ACTIONS.items():
+                combo = getattr(config, field)
+                active = self.listeners.get(action)
+                if (action not in self._pending_listeners and action not in self._deferred_starts
+                        and (active is None or active.combo != combo)
+                        and self._attempted_hotkeys.get(action) != combo):
+                    self._begin_hotkey(action, combo, persist=False)
+        self._refresh_hotkey_status()
+
+    def _hotkey_failed(self, action, combo, message):
+        label = self.SHORTCUT_ACTIONS[action][1]
+        self._hotkey_errors[action] = (combo, message)
+        self._feedback_action = action
+        self.shortcut_feedback.set(f'{label}: {message}; shortcut settings were not applied.')
+
+    def _begin_hotkey(self, action: str, combo: str, *, persist: bool) -> None:
+        """Keep the old action working until its fresh candidate is ready and saved."""
+        if self.closing or action in self._pending_listeners:
             return
-        active=self.listener
-        if desired.hotkey_enabled and active is not None and not active.is_stopped and active.combo==desired.hotkey:
-            if persist and desired != self.context.config.current:
-                self.context.config.update(desired,persist=True)
+        config = self.context.config.current
+        field = self.SHORTCUT_ACTIONS[action][0]
+        combo = parse_hotkey(combo).canonical
+        # Validate duplicates before any native operation, including external targets.
+        replace(config, **{field: combo})
+        if not self.resident or not config.hotkey_enabled:
             return
-        self._hotkey_transaction_active=True
-        self._settings_busy(True)
-        self._pending_config=desired
-        self._pending_persist=persist
-        if not desired.hotkey_enabled:
-            self._commit_hotkey()
+        self._attempted_hotkeys[action] = combo
+        active = self.listeners.get(action)
+        if active is not None and active.combo == combo and not active.is_stopped:
+            try:
+                if persist and getattr(config, field) != combo:
+                    self._save_hotkey_config(replace(self.context.config.current, **{field: combo}))
+                self._hotkey_errors.pop(action, None)
+                if self._feedback_action == action:
+                    self.shortcut_feedback.set(f'{self.SHORTCUT_ACTIONS[action][1]} shortcut is active.')
+                    self._feedback_action = None
+            except OffLookError as exc:
+                self._hotkey_failed(action, combo, str(exc))
+            self._refresh_hotkey_status()
+            return
+        for owner, listener in self.listeners.items():
+            if owner != action and listener.combo == combo:
+                self._hotkey_failed(action, combo,
+                                    f'Already active for {self.SHORTCUT_ACTIONS[owner][1]}; use an unused combination first')
+                self._refresh_hotkey_status()
+                return
+        if any(listener.combo == combo for _, listener in self._retiring_listeners):
+            self._deferred_starts[action] = (combo, persist, getattr(config, field))
+            self._refresh_hotkey_status()
             return
         from offlook.platforms.windows_hotkey import HotkeyListener
-        self._pending_listener=HotkeyListener(desired.hotkey)
-        self._pending_listener.start()
-
-    def _finish_hotkey(self):
-        """Restore editable controls to the committed configuration."""
-        self._pending_listener=self._pending_config=None
-        self._hotkey_transaction_active=False
-        self._settings_busy(False)
-        self.combo.set(self.context.config.current.hotkey)
-        self.enabled.set(self.context.config.current.hotkey_enabled)
-
-    def _commit_hotkey(self):
-        """Save before swapping; a failed save cannot disable the previous shortcut."""
+        candidate = HotkeyListener(combo)
+        self._pending_listeners[action] = _PendingHotkey(candidate, persist, combo, getattr(config, field))
+        self._hotkey_errors.pop(action, None)
         try:
-            if self._pending_persist:
-                self.context.config.update(self._pending_config,persist=True)
-            old=self.listener
-            self.listener=self._pending_listener
-            self._retire(old)
-            self.hotkey_status.set(f'Current shortcut: {self.listener.combo}' if self.listener else 'Global shortcut disabled')
-            self.status.set('Shortcut settings applied')
-            self._start_search_listener()
+            candidate.start()
+        except Exception as exc:
+            self._hotkey_failed(action, combo, str(exc))
+            self._retire(action, candidate)
+            self._finish_hotkey(action)
+        self._refresh_hotkey_status()
+
+    def _finish_hotkey(self, action: str) -> None:
+        """Settle one transaction without discarding any action's proposed draft."""
+        self._pending_listeners.pop(action, None)
+        self.enabled.set(self.context.config.current.hotkey_enabled)
+        self.combo.set(self._drafts[self._selected_action])
+        self._refresh_hotkey_status()
+
+    def _commit_hotkey(self, action: str) -> None:
+        """Patch the latest config and persist before promoting a ready candidate."""
+        pending = self._pending_listeners.get(action)
+        if pending is None:
+            return
+        config = self.context.config.current
+        field = self.SHORTCUT_ACTIONS[action][0]
+        if (self.closing or not self.resident or not config.hotkey_enabled
+                or getattr(config, field) != pending.saved_combo):
+            self._retire(action, pending.listener)
+            self._finish_hotkey(action)
+            self._attempted_hotkeys.pop(action, None)
+            self._reconcile_hotkeys()
+            return
+        try:
+            if pending.persist:
+                self._save_hotkey_config(replace(config, **{field: pending.combo}))
+            old = self.listeners.get(action)
+            self.listeners[action] = pending.listener
+            self._retire(action, old)
+            self._hotkey_errors.pop(action, None)
+            if self._feedback_action == action:
+                self.shortcut_feedback.set(f'{self.SHORTCUT_ACTIONS[action][1]} shortcut applied.')
+                self._feedback_action = None
         except OffLookError as exc:
-            self._retire(self._pending_listener)
-            self.status.set(str(exc))
+            self._retire(action, pending.listener)
+            self._hotkey_failed(action, pending.combo, str(exc))
         finally:
-            self._finish_hotkey()
+            self._finish_hotkey(action)
 
-    def _start_search_listener(self):
-        """Start the fixed folder-search listener after preview registration succeeds."""
-        if self.search_listener is not None or self.closing:
-            return
-        from offlook.platforms.windows_hotkey import HotkeyListener
-        self.search_listener = HotkeyListener('Ctrl+Q')
-        self.search_listener.start()
-
-    def _start_diff_listener(self):
-        """Start the fixed Explorer Git comparison shortcut after search registration."""
-        if self.diff_listener is not None or self.closing:
-            return
-        from offlook.platforms.windows_hotkey import HotkeyListener
-        self.diff_listener = HotkeyListener('Ctrl+Alt+D')
-        self.diff_listener.start()
-
-    def _start_convert_listener(self):
-        """Start the configurable Explorer file-conversion shortcut."""
-        if self.convert_listener is not None or self.closing:
-            return
-        from offlook.platforms.windows_hotkey import HotkeyListener
-        self.convert_listener = HotkeyListener(self.context.config.current.convert_hotkey)
-        self.convert_listener.start()
-
-    def _restart_convert_listener(self):
-        """Swap the conversion shortcut to the newly persisted combination."""
-        if self.convert_listener is not None:
-            self._retire(self.convert_listener)
-            self.convert_listener = None
-        if self.resident:
-            self._start_convert_listener()
+    def _poll_hotkeys(self):
+        """Drain whole status batches before promotion or dispatch; errors win."""
+        for action, listener in list(self.listeners.items()):
+            events = list(listener.poll())
+            errors = [event['message'] for event in events if event['type'] == 'error']
+            if errors or listener.is_stopped:
+                self.listeners.pop(action, None)
+                self._retire(action, listener)
+                field = self.SHORTCUT_ACTIONS[action][0]
+                self._attempted_hotkeys[action] = getattr(self.context.config.current, field)
+                self._hotkey_failed(action, listener.combo, '; '.join(errors) or 'Listener stopped')
+                self._refresh_hotkey_status()
+                continue
+            for event in events:
+                if event['type'] == 'hotkey' and not self.closing:
+                    self._dispatch_hotkey(action, event['foreground_hwnd'], event.get('combo', listener.combo))
+        for action, pending in list(self._pending_listeners.items()):
+            events = list(pending.listener.poll())
+            errors = [event['message'] for event in events if event['type'] == 'error']
+            if errors or pending.listener.is_stopped:
+                self._retire(action, pending.listener)
+                self._hotkey_failed(action, pending.combo, '; '.join(errors) or 'Listener stopped before registration')
+                self._finish_hotkey(action)
+            elif not self.closing and any(event['type'] == 'ready' for event in events):
+                self._commit_hotkey(action)
+            # Candidate key events are always discarded, including its ready batch.
+        for action, listener in self._retiring_listeners[:]:
+            events = list(listener.poll())
+            stopped = listener.is_stopped
+            if stopped:
+                # Once stopped, no producer remains: consume final unregister errors.
+                events.extend(listener.poll())
+            for event in events:
+                if event['type'] == 'error':
+                    self._hotkey_errors[action] = (listener.combo, event['message'])
+                    self._feedback_action = action
+                    self.shortcut_feedback.set(f'{self.SHORTCUT_ACTIONS[action][1]}: {event["message"]}')
+            if stopped:
+                self._retiring_listeners.remove((action, listener))
+            else:
+                listener.stop()
+            if events:
+                self._refresh_hotkey_status()
+        for action, (combo, persist, saved_combo) in list(self._deferred_starts.items()):
+            if any(listener.combo == combo for _, listener in self._retiring_listeners):
+                continue
+            self._deferred_starts.pop(action)
+            field = self.SHORTCUT_ACTIONS[action][0]
+            if getattr(self.context.config.current, field) == saved_combo:
+                self._begin_hotkey(action, combo, persist=persist)
+            else:
+                self._attempted_hotkeys.pop(action, None)
+                self._reconcile_hotkeys()
+        self._settings_busy()
 
     def _add_path(self):
         """Run add-only user PATH registration away from the Tk thread."""
@@ -761,6 +963,7 @@ class PreviewApplication:
     def open(self,path: str|Path)->None:
         """Create a view; its layout callback submits the first physical-pixel request."""
         if self.closing: return
+        self._cancel_selection(resume=False)
         if self.preview is not None:
             self.close_preview(exiting=False)
         from offlook.preview.window import PreviewWindow
@@ -768,7 +971,7 @@ class PreviewApplication:
         self._preview_config=self.context.config.current
         self._preview_opened=False
         self.exit_code=0
-        self.selection_hwnd=None
+        self.selection_hwnd = self.selection_mode = None
         self.preview=PreviewWindow(self.root,self.path,
             always_on_top=self._preview_config.always_on_top if self.top_override is None else self.top_override,
             on_render=self._submit,on_close=self.close_preview)
@@ -782,59 +985,121 @@ class PreviewApplication:
         self.runner.submit(RenderRequest(self.generation,self.path,self._preview_config,
                                         page_index=page,max_width=width,max_height=height))
 
-    def _hotkey(self,hwnd):
-        """Resolve only foreground Shell files; ignore global keys during focused recording."""
-        import win32gui
-        if self._recording and hwnd==win32gui.GetAncestor(self.root.winfo_id(),2):
-            self.combo.set(self.listener.combo)
-            self._recording=False
-            self.status.set('Recorded. Click Apply to activate.')
+    def _dispatch_hotkey(self, action: str, hwnd: int, combo: str) -> None:
+        """Guard every feature against recording and OffLook-owned foreground views."""
+        if self.closing or not hwnd:
             return
-        self._recording=False
-        if self.preview and hwnd==win32gui.GetAncestor(self.preview.window.winfo_id(),2):
+        import win32gui
+        main_hwnd = win32gui.GetAncestor(self.root.winfo_id(), 2)
+        if self._recording and hwnd == main_hwnd and win32gui.GetForegroundWindow() == main_hwnd:
+            self._record_combo(combo)
+            return
+        preview_hwnd = (win32gui.GetAncestor(self.preview.window.winfo_id(), 2)
+                        if self.preview is not None else None)
+        owned = {main_hwnd, preview_hwnd}
+        for window in (self.help_window, self.diff_window):
+            if window is not None and window.winfo_exists():
+                owned.add(win32gui.GetAncestor(window.winfo_id(), 2))
+        if hwnd in owned:
+            if action == 'preview' and hwnd == preview_hwnd:
+                self._hotkey(hwnd)
+            return
+        {'preview': self._hotkey, 'search': self._search_hotkey,
+         'diff': self._diff_hotkey, 'convert': self._convert_hotkey}[action](hwnd)
+
+    def _hotkey(self, hwnd):
+        """Toggle this preview or resolve a foreground Shell file."""
+        import win32gui
+        if self.preview and hwnd == win32gui.GetAncestor(self.preview.window.winfo_id(), 2):
             self.close_preview()
             return
-        if not hwnd or hwnd==win32gui.GetAncestor(self.root.winfo_id(),2): return
-        from offlook.platforms.windows_selection import SelectionRequest
-        if self.preview: self.preview.set_render_suspended(True)
-        self.generation+=1
-        self.selection_hwnd=hwnd
-        self.selection_mode = 'preview'
-        self.runner.submit(SelectionRequest(self.generation,hwnd,self.context.config.current))
+        self._begin_selection('preview', hwnd)
 
     def _search_hotkey(self, hwnd):
-        """Use Ctrl+Q to select the current Explorer folder for searching."""
-        if not hwnd or self.closing:
-            return
-        from offlook.platforms.windows_selection import SelectionRequest
-        self.generation += 1
-        self.selection_hwnd = hwnd
-        self.selection_mode = 'search'
-        self.runner.submit(SelectionRequest(
-            self.generation, hwnd, self.context.config.current, allow_folder=True
-        ))
+        """Prepare the selected Explorer folder without starting a search."""
+        self._begin_selection('search', hwnd)
 
     def _diff_hotkey(self, hwnd):
-        """Use Ctrl+Alt+D to compare the selected Explorer file with Git HEAD."""
-        if not hwnd or self.closing:
+        """Resolve the selected Explorer file for comparison with Git HEAD."""
+        self._begin_selection('diff', hwnd)
+
+    def _begin_selection(self, action: str, hwnd: int) -> None:
+        """Suspend renders before the latest captured foreground selection request."""
+        if self.closing or not hwnd:
             return
         from offlook.platforms.windows_selection import SelectionRequest
+        if self.preview is not None:
+            self.preview.set_render_suspended(True)
         self.generation += 1
-        self.selection_hwnd = hwnd
-        self.selection_mode = 'diff'
-        self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current))
+        self.selection_hwnd, self.selection_mode = hwnd, action
+        self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current,
+                                            allow_folder=action == 'search',
+                                            multiple=action == 'convert'))
+
+    def _cancel_selection(self, *, resume=True):
+        if self.selection_hwnd is not None or self.selection_mode is not None:
+            self.generation += 1
+            self.runner.cancel()
+            self.selection_hwnd = self.selection_mode = None
+            if resume and self.preview is not None:
+                self.preview.set_render_suspended(False)
+
+    def _selection_feedback(self, action, message):
+        label = self.SHORTCUT_ACTIONS[action][1]
+        if action == 'search':
+            self.search_status.set(f'{label}: {message}')
+        elif action == 'diff':
+            self.diff_status.set(f'{label}: {message}')
+        else:
+            self.status.set(f'{label}: {message}')
+
+    def _finish_selection(self, result):
+        """Clear selection metadata on every path and resume an existing preview."""
+        import win32gui
+        hwnd, action = self.selection_hwnd, self.selection_mode
+        self.selection_hwnd = self.selection_mode = None
+        previous_preview = self.preview
+        try:
+            if result['code']:
+                self._selection_feedback(action, result['message'])
+            elif win32gui.GetForegroundWindow() != hwnd:
+                self._selection_feedback(action, 'Foreground focus changed; selection cancelled.')
+            elif action == 'convert':
+                if result['data'].paths:
+                    self._show_conversion_wheel(result['data'].paths)
+                else:
+                    self._selection_feedback(action, result['data'].reason or 'No local files selected')
+            elif result['data'].path is None:
+                self._selection_feedback(action, result['data'].reason)
+            elif action == 'search':
+                self.search_folder.set(str(result['data'].path))
+                self.search_status.set('Folder selected from File Explorer. Enter a filename or choose a type, then click Search.')
+                self._show()
+                self.root.after_idle(self._focus_search)
+            elif action == 'diff':
+                self._start_comparison(result['data'].path)
+            else:
+                self.open(result['data'].path)
+        finally:
+            if self.preview is not None and self.preview is previous_preview:
+                self.preview.set_render_suspended(False)
+
+    def _scroll_into_view(self, widget: tk.Misc) -> None:
+        """Bring the card's leading controls into the existing narrow scroll area."""
+        self.main_canvas.update_idletasks()
+        height = max(1, self.main_content.winfo_height())
+        top = widget.winfo_rooty() - self.main_content.winfo_rooty()
+        self.main_canvas.yview_moveto(max(0, top) / height)
+
+    def _focus_search(self):
+        if not self.closing:
+            self._scroll_into_view(self.search_card)
+            self.search_entry.focus_set()
+            self.search_entry.selection_range(0, 'end')
 
     def _convert_hotkey(self, hwnd):
-        """Use the convert shortcut to collect every selected Explorer file."""
-        if not hwnd or self.closing:
-            return
-        from offlook.platforms.windows_selection import SelectionRequest
-        self.generation += 1
-        self.selection_hwnd = hwnd
-        self.selection_mode = 'convert'
-        self.runner.submit(SelectionRequest(
-            self.generation, hwnd, self.context.config.current, multiple=True
-        ))
+        """Collect every selected Explorer file for the conversion wheel."""
+        self._begin_selection('convert', hwnd)
 
     def _poll(self):
         """Consume native events and worker results only on the owning Tk thread."""
@@ -845,46 +1110,7 @@ class PreviewApplication:
                 elif event=='error' and not self.closing:
                     self._show()
                     self.status.set(self.tray.last_error)
-        if self.listener:
-            for event in self.listener.poll():
-                if event['type']=='hotkey' and not self.closing: self._hotkey(event['foreground_hwnd'])
-                elif event['type']=='error': self.hotkey_status.set(event['message'])
-        if self.search_listener:
-            for event in self.search_listener.poll():
-                if event['type'] == 'hotkey' and not self.closing:
-                    self._search_hotkey(event['foreground_hwnd'])
-                elif event['type'] == 'error':
-                    self.status.set(event['message'])
-                elif event['type'] == 'ready':
-                    self._start_diff_listener()
-        if self.diff_listener:
-            for event in self.diff_listener.poll():
-                if event['type'] == 'hotkey' and not self.closing:
-                    self._diff_hotkey(event['foreground_hwnd'])
-                elif event['type'] == 'error':
-                    self.status.set(event['message'])
-                elif event['type'] == 'ready':
-                    self._start_convert_listener()
-        if self.convert_listener:
-            for event in self.convert_listener.poll():
-                if event['type'] == 'hotkey' and not self.closing:
-                    self._convert_hotkey(event['foreground_hwnd'])
-                elif event['type'] == 'error':
-                    self.status.set(event['message'])
-        pending=self._pending_listener
-        if pending and not self.closing:
-            for event in pending.poll():
-                if self._pending_listener is not pending: break
-                if event['type']=='ready': self._commit_hotkey()
-                elif event['type']=='error':
-                    active_text=self.listener.combo if self.listener else 'Disabled'
-                    self.status.set(f"{event['message']}; settings not applied. Still using: {active_text}")
-                    self._retire(pending)
-                    self._finish_hotkey()
-        for listener in self._retiring_listeners[:]:
-            for event in listener.poll():
-                if event['type']=='error': self.status.set(event['message'])
-            if listener.is_stopped: self._retiring_listeners.remove(listener)
+        self._poll_hotkeys()
         try:
             result,error=self._path_results.get_nowait()
         except queue.Empty:
@@ -902,23 +1128,25 @@ class PreviewApplication:
         except queue.Empty:
             pass
         else:
-            self.search_button.state(['!disabled'])
-            for item in self.search_tree.get_children():
-                self.search_tree.delete(item)
-            if search_error:
-                self.search_status.set(search_error)
-            else:
-                for item in search_results:
-                    self.search_tree.insert('', 'end', values=(item.kind.value, str(item.path)))
-                self.search_status.set(f'{len(search_results)} file(s) found.')
+            if not self.closing:
+                self.search_button.state(['!disabled'])
+                for item in self.search_tree.get_children():
+                    self.search_tree.delete(item)
+                if search_error:
+                    self.search_status.set(search_error)
+                else:
+                    for item in search_results:
+                        self.search_tree.insert('', 'end', values=(item.kind.value, str(item.path)))
+                    self.search_status.set(f'{len(search_results)} file(s) found.')
         try:
             comparison, compare_error = self._diff_results.get_nowait()
         except queue.Empty:
             pass
         else:
-            if compare_error:
+            if self.closing:
+                pass
+            elif compare_error:
                 self.diff_status.set(compare_error)
-                self.status.set(compare_error)
             else:
                 from offlook.ui.diff import show_diff
                 if self.diff_window is not None and self.diff_window.winfo_exists():
@@ -979,28 +1207,7 @@ class PreviewApplication:
             # Every resize/page/file switch invalidates older response generations.
             if self.closing or result['request_id']!=self.generation: continue
             if self.selection_hwnd is not None:
-                import win32gui
-                hwnd=self.selection_hwnd
-                self.selection_hwnd=None
-                mode=self.selection_mode
-                self.selection_mode = None
-                if self.preview: self.preview.set_render_suspended(False)
-                if result['code']:
-                    self.status.set(result['message'])
-                elif win32gui.GetForegroundWindow()!=hwnd:
-                    pass
-                elif mode == 'search' and result['data'].path is not None:
-                    self.search_folder.set(str(result['data'].path))
-                    self.search_status.set('Folder selected from File Explorer. Enter a filename or choose a type, then click Search.')
-                    self._show()
-                    self.search_entry.focus_set()
-                    self.search_entry.selection_range(0, 'end')
-                elif mode == 'diff' and result['data'].path is not None:
-                    self._start_comparison(result['data'].path)
-                elif mode == 'convert' and result['data'].paths:
-                    self._show_conversion_wheel(result['data'].paths)
-                elif result['data'].path is not None:
-                    self.open(result['data'].path)
+                self._finish_selection(result)
             elif self.preview:
                 if result['code']:
                     self.exit_code=1
@@ -1011,31 +1218,40 @@ class PreviewApplication:
                     if not self._preview_opened:
                         self._preview_opened=True
                         self.context.events.publish('preview.opened',{'file_info':result['data'].file_info})
-        listeners=[item for item in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,self.convert_listener,*self._retiring_listeners] if item]
-        if self.closing and self.runner.is_closed and all(item.is_stopped for item in listeners) and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()) and (self._filter_thread is None or not self._filter_thread.is_alive()) and (self._convert_thread is None or not self._convert_thread.is_alive()) and (self._ai_thread is None or not self._ai_thread.is_alive()):
+        listeners = [*self.listeners.values(),
+                     *(pending.listener for pending in self._pending_listeners.values()),
+                     *(listener for _, listener in self._retiring_listeners)]
+        if self.closing and self.runner.is_closed and not listeners and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()) and (self._filter_thread is None or not self._filter_thread.is_alive()) and (self._convert_thread is None or not self._convert_thread.is_alive()) and (self._ai_thread is None or not self._ai_thread.is_alive()):
             self.root.destroy()
             return
         self.root.after(25,self._poll)
 
-    def close_preview(self,exiting=True):
-        """Cancel rendering before destroying its view and timers."""
-        if self.preview is None: return
-        self.generation+=1
-        self.runner.cancel()
+    def close_preview(self, exiting=True):
+        """Close the view without canceling an unrelated pending folder/diff action."""
+        if self.selection_mode == 'preview':
+            self._cancel_selection(resume=False)
+        if self.preview is None:
+            return
+        if self.selection_hwnd is None:
+            self.generation += 1
+            self.runner.cancel()
         self.preview.destroy()
-        self.preview=None
-        self.context.events.publish('preview.closed',{'path':self.path})
-        if not self.resident and exiting: self.shutdown()
+        self.preview = None
+        self.context.events.publish('preview.closed', {'path': self.path})
+        if not self.resident and exiting:
+            self.shutdown()
 
     def shutdown(self):
         """Keep polling until every native listener and initiated PATH write is closed."""
         if self.closing: return
         self.closing=True
+        self._cancel_recording()
+        self._cancel_selection(resume=False)
         self.close_preview(exiting=False)
         self.unsubscribe()
         self.runner.close()
-        for listener in [self.listener,self._pending_listener,self.search_listener,self.diff_listener,self.convert_listener,*self._retiring_listeners]:
-            if listener: listener.stop()
+        self._stop_hotkeys()
+        self._refresh_hotkey_status()
         if self.tray: self.tray.stop()
         if self.convert_wheel and self.convert_wheel.winfo_exists(): self.convert_wheel.destroy()
         if self.help_window and self.help_window.winfo_exists(): self.help_window.destroy()

@@ -26,7 +26,7 @@ from offlook.core import FileKind, filter_files
 results = filter_files("C:/Documents", kinds=[FileKind.PDF, FileKind.IMAGE])
 ```
 
-FileInfo contains path, kind, size_bytes, modified_time_ns, extension, encoding, and encoding_confidence. Detection synchronously reads up to 64 KiB and accepts only local regular files. Kinds are image/text/markdown/pdf/code/csv/binary; the binary classification does not mean binary contents will be displayed.
+FileInfo contains path, kind, size_bytes, modified_time_ns, extension, encoding, and encoding_confidence. Detection synchronously reads up to 64 KiB and accepts only local regular files. Kinds are image/text/markdown/pdf/code/csv/document/binary; document and binary classifications display metadata rather than parsed contents.
 
 ## Open a preview
 
@@ -62,12 +62,23 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | --- | --- |
 | max_file_size_bytes | 10,485,760 bytes |
 | preview_timeout_seconds | 5 seconds |
-| hotkey_enabled / hotkey | True / Ctrl+Space; the UI registers before saving |
-| search_hotkey / convert_hotkey | Ctrl+Q / Alt+C (the conversion wheel shortcut) |
+| hotkey_enabled | True; shared enable gate for Preview, Search files, Git comparison, and Convert files |
+| hotkey | Ctrl+Space; Preview shortcut |
+| search_hotkey | Ctrl+Q; prepares a local folder for Search files without starting a search |
+| diff_hotkey | Ctrl+Alt+D; Git comparison shortcut |
+| convert_hotkey | Alt+C; conversion wheel shortcut |
 | convert_mode | auto; also text (text-only) and office (require LibreOffice) |
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
 | ai_enabled / ai_base_url / ai_api_key / ai_model | False / https://api.deepseek.com / "" / deepseek-chat |
+
+The four combinations are canonicalized with `parse_hotkey` and must be pairwise distinct even when `hotkey_enabled` is false. Invalid syntax raises `ConfigError` with its `HotkeyError` cause; duplicate errors name both conflicting fields. Missing shortcut fields in old JSON use defaults without rewriting the file; existing collisions are configuration errors, not silently reset. These combinations are defaults, not permanently reserved keys.
+
+The resident GUI's **Enable global shortcuts** switch immediately persists the shared gate. Its Preview / Search files / Git comparison / Convert files selector maintains separate drafts; **Apply** saves only the selected key. While enabled, a replacement is registered before saving, and the old active key remains on registration or persistence failure. While disabled, Apply only saves. External updates reconcile only shortcut fields and the shared gate; other settings do not rebind keys. Each action registers independently, and statuses distinguish configured keys from active registrations. An external cross-action swap requires an intermediate unused combination rather than an unregister-first swap. `launch_preview` and the single-file CLI command register no global shortcuts.
+
+`offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes its text in place without focusing it and preserves its scroll position. Both accept a mapping with `preview`, `search`, `diff`, and `convert` keys containing the rendered registration statuses.
+
+`py -m offlook --config '<path>' diagnose-search-shortcut` loads the specified config before creating only the configured search listener and Explorer selection provider; it creates no GUI. It tests `search_hotkey` even with the shared gate disabled, without saving settings. Release that key in the main app and other instances first. Ctrl+C exits the diagnostic with code 0; invalid or missing explicit config exits with code 2.
 
 `events.subscribe(topic, callback)` returns an unsubscribe function. The callback receives Event(topic, payload) synchronously on the publishing thread.
 

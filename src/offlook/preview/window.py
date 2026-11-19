@@ -53,6 +53,7 @@ class PreviewWindow:
         self._pending_viewport = False
         self._submitted: tuple[int, int, int] | None = None
         self._completed: tuple[int, int, int] | None = None
+        self._interrupted_page: int | None = None
         self._resize_job = self._idle_job = self._fit_job = None
         self._data: PreviewData | None = None
         self._raster = self._photo = self._image = None
@@ -223,8 +224,20 @@ class PreviewWindow:
             return
         was_suspended = self._suspended
         self._suspended = bool(suspended)
-        if was_suspended and not self._suspended:
-            if self._submitted is None or self._raster is not None:
+        if self._suspended and not was_suspended:
+            # Selection replaces the worker request. Remember the first canceled
+            # page even if more selections replace it before the preview resumes.
+            if self._loading and self._submitted is not None:
+                self._interrupted_page = self._submitted[0]
+        elif was_suspended and not self._suspended:
+            if self._interrupted_page is not None:
+                page = self._interrupted_page
+                self._interrupted_page = None
+                # A canceled request never completed at its submitted size. Drop
+                # both guards so even an unchanged/smaller viewport is retried.
+                self._submitted = self._completed = None
+                self._request_viewport(page)
+            elif self._submitted is None or self._raster is not None:
                 page = self._submitted[0] if self._submitted is not None else 0
                 self._request_viewport(page)
             self._pending_viewport = False

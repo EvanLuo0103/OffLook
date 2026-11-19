@@ -1,6 +1,7 @@
 """Built-in English help window; no browser or external markdown reader."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 import tkinter as tk
 from tkinter import ttk
 
@@ -10,14 +11,15 @@ from offlook.ui.theme import COLORS, window_fonts, size_window
 _HELP_TEXT = """Choosing a file to preview
 Click "Choose file" in the main window, or run:
   offlook preview ".\\README.md"
-Select one file in File Explorer or on the desktop, then press the current shortcut to preview it.
+Select one file in File Explorer or on the desktop, then press the configured Preview shortcut. Its default is Ctrl+Space.
 
 Searching files
 In "Search files", choose a local folder and optionally enter part of a filename. Choose "All types", a content category, "Documents (.doc/.xlsx)", or "Other / unknown", then click "Search".
 The search includes subfolders but does not follow links or network folders. Double-click a result to preview it.
-In File Explorer, open or select a local folder and press Ctrl+Q to load it into Search files. Ctrl+Space remains the preview shortcut.
+In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook loads the folder and focuses the filename field; it does not run a search until you click "Search". A selected regular file or multiple items is an error, not a request to search the parent folder.
+
 Git comparison
-The separate "Git comparison" card contains "Compare with Git HEAD". Select a tracked text file there, or select it in File Explorer and press Ctrl+Alt+D. The window compares the working file with HEAD line by line and highlights added, deleted, and modified lines.
+The separate "Git comparison" card contains "Compare with Git HEAD". Select a tracked text file there, or select it in File Explorer and press the configured Git comparison shortcut (default: Ctrl+Alt+D). The window compares the working file with HEAD line by line and highlights added, deleted, and modified lines.
 Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
 
 Converting files
@@ -29,18 +31,25 @@ In "Filter files", choose a local folder and check any combination of formats, t
 AI file assistant
 The "AI file assistant" card is an opt-in port: enter your own OpenAI-compatible endpoint (for example DeepSeek's base URL), model, and API key, then describe a file task in plain language. The assistant may call OffLook's local list, filter, move, copy, and organize tools to act on your files. No network request is made unless you run the assistant with an API key.
 
-Current shortcut
-{hotkey}
+Current global shortcuts
+Preview: {preview}
+Search files: {search}
+Git comparison: {diff}
+Convert files: {convert}
+This summary updates when shortcut registration changes. An active key can differ from the configured key if a replacement fails.
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.
-You can still choose files in the main window when the global shortcut is disabled.
+You can still choose files, search, and compare manually when global shortcuts are disabled or unavailable.
 
 Preview controls
 PDFs have Previous / Next buttons; page numbers appear only for rendered PDF pages. "Always on top" applies only to the current preview.
 When you enlarge the window or move it to a higher-DPI display, images and PDFs are rendered again with more physical pixels, rather than repeatedly enlarging the old image.
 
 Shortcut settings and conflicts
-Click "Record shortcut", press a combination inside OffLook, then click "Apply". Recording does not activate it; if registration fails, the previous shortcut remains active.
-Win-key combinations, F12, single keys, and reserved combinations such as Alt+F4 are not supported. If another app uses the combination, choose another with Ctrl or Alt.
+Choose Preview, Search files, or Git comparison in the action selector. Each action keeps its own draft. Click "Record shortcut", press a combination inside OffLook, then click "Apply" to save only the selected action. Esc cancels recording; switching actions cancels unfinished recording. "Reset default" changes only the selected draft and also requires Apply.
+"Enable global shortcuts" applies immediately to all three actions, independently of Apply. Disabling releases all keys; enabling attempts each saved key independently. A key that another application owns is shown as Unavailable, while the other actions can still work.
+Combinations must be different for all three actions, even while disabled. If registration or saving fails, the previous active key remains; the proposed draft is kept for correction or retry. Release an occupied key in the other application, then Apply again, or choose another combination. Changing externally configured keys does not implicitly swap active registrations: use an intermediate unused key to release the old one.
+Recording does not activate a shortcut or execute a feature, including when you press an already-registered Search files or Git comparison key over OffLook's main window.
+Win-key combinations, F12, single keys, and reserved combinations such as Alt+F4 are not supported. Choose a combination with Ctrl or Alt, optionally Shift.
 
 Add to PATH
 "Add to PATH" in the main window updates only the current user's environment. It does not change the system PATH or other versions. Reopen PowerShell afterward; restart Windows Terminal if needed.
@@ -56,7 +65,7 @@ Content previews support images, PDFs, text, Markdown, code, and CSV. Word, Exce
 """
 
 
-def show_help(parent: tk.Misc, *, hotkey: str) -> tk.Toplevel:
+def show_help(parent: tk.Misc, *, shortcuts: Mapping[str, str]) -> tk.Toplevel:
     """Create and return one scrollable, read-only help Toplevel."""
     window = tk.Toplevel(parent)
     window._offlook_font_prefix = "Help"
@@ -87,10 +96,27 @@ def show_help(parent: tk.Misc, *, hotkey: str) -> tk.Toplevel:
     scroll.grid(row=0, column=1, sticky="ns")
     frame.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
-    content = _HELP_TEXT.format(hotkey=hotkey if hotkey else "Disabled")
-    text.insert("1.0", content)
-    text.configure(state="disabled", cursor="arrow")
+    window._offlook_help_text = text
+    text.configure(cursor="arrow")
+    update_help_shortcuts(window, shortcuts=shortcuts)
     window.bind("<Escape>", lambda _event: window.destroy())
     window.protocol("WM_DELETE_WINDOW", window.destroy)
     window.focus_set()
     return window
+
+
+def update_help_shortcuts(window: tk.Toplevel, *, shortcuts: Mapping[str, str]) -> None:
+    """Refresh the existing Help body without changing focus or scroll position."""
+    text = window._offlook_help_text
+    position = text.yview()[0]
+    content = _HELP_TEXT.format(
+        preview=shortcuts["preview"],
+        search=shortcuts["search"],
+        diff=shortcuts["diff"],
+        convert=shortcuts["convert"],
+    )
+    text.configure(state="normal")
+    text.delete("1.0", "end")
+    text.insert("1.0", content)
+    text.configure(state="disabled")
+    text.yview_moveto(position)

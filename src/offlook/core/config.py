@@ -29,6 +29,7 @@ class PreviewConfig:
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
     search_hotkey: str = "Ctrl+Q"
+    diff_hotkey: str = "Ctrl+Alt+D"
     convert_hotkey: str = "Alt+C"
     convert_mode: str = "auto"
     ai_enabled: bool = False
@@ -42,21 +43,18 @@ class PreviewConfig:
             raise ConfigError("max_file_size_bytes must be a positive integer (bytes)")
         if type(self.hotkey_enabled) is not bool or type(self.always_on_top) is not bool or type(self.ai_enabled) is not bool:
             raise ConfigError("hotkey_enabled, always_on_top, and ai_enabled must be booleans")
-        try:
-            canonical_hotkey = parse_hotkey(self.hotkey).canonical
-        except HotkeyError as exc:
-            raise ConfigError(f"Invalid hotkey setting: {exc}") from exc
-        object.__setattr__(self, "hotkey", canonical_hotkey)
-        try:
-            search_hotkey = parse_hotkey(self.search_hotkey).canonical
-        except HotkeyError as exc:
-            raise ConfigError(f"Invalid search hotkey setting: {exc}") from exc
-        object.__setattr__(self, "search_hotkey", search_hotkey)
-        try:
-            convert_hotkey = parse_hotkey(self.convert_hotkey).canonical
-        except HotkeyError as exc:
-            raise ConfigError(f"Invalid convert hotkey setting: {exc}") from exc
-        object.__setattr__(self, "convert_hotkey", convert_hotkey)
+        shortcut_names = ("hotkey", "search_hotkey", "diff_hotkey", "convert_hotkey")
+        for name in shortcut_names:
+            try:
+                canonical = parse_hotkey(getattr(self, name)).canonical
+            except HotkeyError as exc:
+                raise ConfigError(f"Invalid {name} setting: {exc}") from exc
+            object.__setattr__(self, name, canonical)
+        for index, first in enumerate(shortcut_names):
+            for second in shortcut_names[index + 1:]:
+                combo = getattr(self, first)
+                if combo == getattr(self, second):
+                    raise ConfigError(f"Shortcut combinations must be different: {first} and {second} both use {combo}")
         if self.convert_mode not in ("auto", "text", "office"):
             raise ConfigError("convert_mode must be 'auto', 'text', or 'office'")
         if not isinstance(self.ai_base_url, str) or not self.ai_base_url.strip():

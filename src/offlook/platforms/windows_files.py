@@ -1,4 +1,4 @@
-"""Conservative Windows local-file validation before any preview content read.
+"""Conservative Windows local-path validation before any preview or folder access.
 
 This rejects common network/cloud redirections, but is not a security sandbox:
 path replacement races and third-party filesystem drivers remain outside it.
@@ -16,21 +16,15 @@ _DIRECTORY = 0x10
 _DEVICE = 0x40
 
 
-def validate_local_file(path: str | Path) -> Path:
-    """Return a normalized Windows local ordinary-file path or raise FileAccessError.
-
-    Normalize strings without resolving filesystem links. Reject UNC/device paths,
-    URLs, alternate data streams, remote drives, and reparse/offline/recall-marked
-    components before opening content. Inspect every component starting at the
-    drive root; do not follow shortcuts, hydrate cloud files, or retry other paths.
-    Win32 import and attribute errors preserve their underlying exception chain.
-    """
+def _validate_local_path(path: str | Path, *, directory: bool) -> Path:
+    """Validate ordinary local paths without following links or opening content."""
+    subject = "folder" if directory else "file"
     try:
         raw = os.fspath(path)
     except TypeError as exc:
-        raise FileAccessError("The file path must be a string or Path") from exc
+        raise FileAccessError(f"The {subject} path must be a string or Path") from exc
     if not isinstance(raw, str) or not raw or "\x00" in raw:
-        raise FileAccessError("The file path is empty or contains invalid characters")
+        raise FileAccessError(f"The {subject} path is empty or contains invalid characters")
     raw = raw.replace("/", "\\")
     if raw.startswith("\\\\"):
         raise FileAccessError("Network UNC, device, and extended namespace paths are not allowed")
@@ -41,12 +35,12 @@ def validate_local_file(path: str | Path) -> Path:
     try:
         normalized = ntpath.abspath(raw)
     except (OSError, ValueError) as exc:
-        raise FileAccessError("Cannot normalize the file path") from exc
+        raise FileAccessError(f"Cannot normalize the {subject} path") from exc
     drive, tail = ntpath.splitdrive(normalized)
     if not re.fullmatch(r"[A-Za-z]:", drive) or not tail.startswith("\\"):
         raise FileAccessError("Only local standard drive-letter paths are allowed")
     if os.name != "nt":
-        raise FileAccessError("OffLook currently supports only local Windows files")
+        raise FileAccessError(f"OffLook currently supports only local Windows {subject}s")
     try:
         import win32file
 
@@ -63,20 +57,37 @@ def validate_local_file(path: str | Path) -> Path:
         for index, component_path in enumerate(components):
             attributes = win32file.GetFileAttributes(component_path)
             if attributes == -1 or attributes == 0xFFFFFFFF:
-                raise FileAccessError("Cannot read file path attributes")
+                raise FileAccessError(f"Cannot read {subject} path attributes")
             if attributes & _REJECT_ATTRIBUTES:
                 raise FileAccessError("Reparse points, offline files, and paths requiring cloud recall are rejected")
             if attributes & _DEVICE:
                 raise FileAccessError("Device files are not allowed")
             if index < len(components) - 1 and not attributes & _DIRECTORY:
-                raise FileAccessError("An intermediate file path component is not a directory")
+                raise FileAccessError(f"An intermediate {subject} path component is not a directory")
             final_attributes = attributes
-        if final_attributes & _DIRECTORY:
+        if directory:
+            if not final_attributes & _DIRECTORY:
+                raise FileAccessError("Select a local folder; regular files cannot be searched as folders")
+        elif final_attributes & _DIRECTORY:
             raise FileAccessError("Select a regular file; directories cannot be previewed")
     except FileAccessError:
         raise
     except ImportError as exc:
         raise FileAccessError("The Windows file access dependency pywin32 is missing") from exc
     except Exception as exc:
-        raise FileAccessError("The file does not exist, is inaccessible, or is in use by another program") from exc
+        raise FileAccessError(f"The {subject} does not exist, is inaccessible, or is in use by another program") from exc
     return Path(normalized)
+
+
+def validate_local_file(path: str | Path) -> Path:
+    """Return a normalized Windows local ordinary-file path or raise FileAccessError.
+
+    Reject UNC/device paths, URLs, alternate data streams, remote drives, and
+    reparse/offline/recall-marked components without resolving filesystem links.
+    """
+    return _validate_local_path(path, directory=False)
+
+
+def validate_local_folder(path: str | Path) -> Path:
+    """Return an ordinary local directory using the same conservative file boundary."""
+    return _validate_local_path(path, directory=True)

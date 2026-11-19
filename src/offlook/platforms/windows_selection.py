@@ -1,4 +1,4 @@
-"""Read one local file from the unique foreground Explorer or desktop view.
+"""Read one local file or folder from the foreground Explorer or desktop view.
 
 The synchronous provider belongs in a disposable selection worker, never a Tk
 callback. Importing this module neither imports pywin32 nor initializes COM.
@@ -60,13 +60,15 @@ class ExplorerSelectionProvider:
     """
 
     def get_selected_file(self, foreground_hwnd: int, *, allow_folder: bool = False) -> Path | None:
-        """Return the sole selected local item, or None for unsupported/lost focus.
+        """Return a validated local path, or None for unsupported/lost focus.
 
         Args:
             foreground_hwnd: Foreground top-level HWND captured at key receipt.
+            allow_folder: Require one ordinary local directory; with no selection,
+                use the current local directory instead. Selected files are errors.
         Raises:
             FileAccessError: Invalid/ambiguous selection, unavailable pywin32,
-                COM/apartment errors, or a file rejected by local validation.
+                COM/apartment errors, or a path rejected by local validation.
 
         Native CoInitializeEx/CoUninitialize calls are deliberately paired here:
         pythoncom may initialize its first importing thread implicitly and may
@@ -206,6 +208,7 @@ def _query_foreground(
     from win32com.client import VARIANT
     from win32com.client import dynamic
     from win32com.shell import shell, shellcon
+    from .windows_files import validate_local_file, validate_local_folder
 
     application = windows = window = view = desktop = None
     background = folder_view = selected = item = None
@@ -264,42 +267,42 @@ def _query_foreground(
                     raise FileAccessError("Cannot identify the current Explorer folder") from exc
                 if not isinstance(current_folder, str) or not current_folder:
                     raise FileAccessError("The current Explorer view has no local folder path")
-                folder = Path(current_folder)
-                try:
-                    if folder.is_dir():
-                        return (folder,) if multiple else folder
-                except OSError as exc:
-                    raise FileAccessError("The current Explorer folder cannot be accessed") from exc
-                raise FileAccessError("The current Explorer view is not a local folder")
+                if int(gui.GetForegroundWindow()) != foreground_hwnd:
+                    return None
+                validated = validate_local_folder(current_folder)
+                return (validated,) if multiple else validated
             raise FileAccessError("No file is selected; select one local file")
-        from .windows_files import validate_local_file
-        collected: list[Path] = []
-        for index in range(count):
-            item = selected.Item(index)
-            if not bool(item.IsFileSystem):
-                continue
-            if bool(item.IsFolder):
-                if not allow_folder:
-                    continue
-                folder_path = item.Path
-                if isinstance(folder_path, str) and folder_path:
-                    collected.append(Path(folder_path))
-                continue
-            raw_path = item.Path
-            if not isinstance(raw_path, str) or not raw_path:
-                continue
-            collected.append(validate_local_file(raw_path))
-        if int(gui.GetForegroundWindow()) != foreground_hwnd:
-            return None
         if multiple:
+            collected: list[Path] = []
+            for index in range(count):
+                item = selected.Item(index)
+                if not bool(item.IsFileSystem) or bool(item.IsFolder):
+                    continue
+                raw_path = item.Path
+                if not isinstance(raw_path, str) or not raw_path:
+                    continue
+                collected.append(validate_local_file(raw_path))
+            if int(gui.GetForegroundWindow()) != foreground_hwnd:
+                return None
             if not collected:
                 raise FileAccessError("No local files are selected; select at least one file")
             return tuple(collected)
-        if not collected:
-            raise FileAccessError("No local file is selected; select one local file")
-        if len(collected) != 1:
-            raise FileAccessError("Multiple items are selected; select only one local file")
-        return collected[0]
+        if count != 1:
+            target = "folder" if allow_folder else "file"
+            raise FileAccessError(f"Multiple items are selected; select only one local {target}")
+        item = selected.Item(0)
+        if not bool(item.IsFileSystem):
+            raise FileAccessError("The selected item is not a local file system file")
+        if bool(item.IsFolder) and not allow_folder:
+            raise FileAccessError("Folder previews are not supported; select one local file")
+        if allow_folder and not bool(item.IsFolder):
+            raise FileAccessError("Select a local folder, not a regular file, for searching")
+        path = item.Path
+        if not isinstance(path, str) or not path:
+            raise FileAccessError("The selected item has no valid local file path")
+        if int(gui.GetForegroundWindow()) != foreground_hwnd:
+            return None
+        return validate_local_folder(path) if allow_folder else validate_local_file(path)
     finally:
         item = selected = folder_view = background = None
         view = desktop = window = None
