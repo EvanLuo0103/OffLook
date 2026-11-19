@@ -36,6 +36,7 @@ class PreviewConfig:
     ai_base_url: str = "https://api.deepseek.com"
     ai_api_key: str = ""
     ai_model: str = "deepseek-chat"
+    language: str = "en"
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
@@ -67,6 +68,8 @@ class PreviewConfig:
             raise ConfigError("ai_api_key must be a string")
         if not isinstance(self.ai_model, str) or not self.ai_model.strip():
             raise ConfigError("ai_model must be a nonblank string")
+        if self.language not in ("en", "zh"):
+            raise ConfigError("language must be 'en' or 'zh'")
         timeout = self.preview_timeout_seconds
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ConfigError("preview_timeout_seconds must be a finite positive number (seconds)")

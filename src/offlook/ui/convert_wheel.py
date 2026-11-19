@@ -11,6 +11,7 @@ import math
 import tkinter as tk
 from collections.abc import Callable, Sequence
 
+from offlook.ui.i18n import tr
 from offlook.ui.theme import COLORS
 
 
@@ -46,9 +47,9 @@ def show_conversion_wheel(
     canvas.create_oval(padding // 2, padding // 2, size - padding // 2,
                        size - padding // 2, fill=COLORS["background"],
                        outline=COLORS["border"], width=2)
-    canvas.create_text(center, center - 14, text="Convert to", fill=COLORS["muted"],
+    canvas.create_text(center, center - 14, text=tr("wheel.title"), fill=COLORS["muted"],
                        font=("Segoe UI", 10, "bold"))
-    canvas.create_text(center, center + 14, text=f"{count} format(s)", fill=COLORS["muted"],
+    canvas.create_text(center, center + 14, text=tr("wheel.count", n=count), fill=COLORS["muted"],
                        font=("Segoe UI", 9))
 
     state: dict[str, object] = {"chosen": False, "ready": False}

@@ -6,42 +6,119 @@ from tkinter import font as tkfont, ttk
 
 
 COLORS = {
-    "background": "#F4F6FA", "card": "#FFFFFF", "text": "#182230",
-    "muted": "#667085", "primary": "#2563EB", "border": "#DCE3ED",
-    "error": "#B42318", "success": "#067647",
+    "background": "#EDF1F8", "card": "#FFFFFF", "text": "#0F172A",
+    "muted": "#55607A", "primary": "#1D4ED8", "primary_dark": "#1E3A8A",
+    "primary_soft": "#E3ECFF", "border": "#C7D2E4", "border_strong": "#9FB0C9",
+    "field": "#FFFFFF", "error": "#B42318", "success": "#067647",
 }
 
 
 def apply_theme(root: tk.Tk) -> None:
-    """Apply the shared clam theme once, before constructing application controls."""
+    """Apply the shared clam theme once, before constructing application controls.
+
+    Contrast rules: the window keeps a cool grey background, every card and field is
+    white, and every interactive control carries a visible rim plus distinct hover
+    and pressed fills. Primary actions (the main call to action on each card) use a
+    solid accent fill, so "what can I click" is readable at a glance.
+    """
     style = ttk.Style(root)
     style.theme_use("clam")
     root.configure(background=COLORS["background"])
     style.configure(".", background=COLORS["background"], foreground=COLORS["text"],
                     bordercolor=COLORS["border"], lightcolor=COLORS["border"],
                     darkcolor=COLORS["border"], focuscolor=COLORS["primary"])
+
+    # Surfaces
     style.configure("TFrame", background=COLORS["background"])
-    style.configure("Card.TFrame", background=COLORS["card"])
+    style.configure("Card.TFrame", background=COLORS["card"], borderwidth=1,
+                    relief="solid", bordercolor=COLORS["border"])
+
+    # Text
     style.configure("TLabel", background=COLORS["background"], foreground=COLORS["text"])
-    style.configure("Card.TLabel", background=COLORS["card"])
-    style.configure("Muted.TLabel", foreground=COLORS["muted"])
+    style.configure("Card.TLabel", background=COLORS["card"], foreground=COLORS["text"])
+    style.configure("Muted.TLabel", background=COLORS["background"], foreground=COLORS["muted"])
     style.configure("Card.Muted.TLabel", background=COLORS["card"], foreground=COLORS["muted"])
-    style.configure("Title.TLabel", foreground=COLORS["text"])
-    style.configure("TButton", padding=(12, 8), borderwidth=1, relief="flat")
-    style.map("TButton", background=[("active", "#E8EDF5"), ("disabled", "#EEF1F6")],
-              foreground=[("disabled", "#98A2B3")])
-    style.configure("Accent.TButton", background=COLORS["primary"], foreground="white")
-    style.map("Accent.TButton", background=[("disabled", "#A8BFF6"), ("active", "#1D4ED8")],
-              foreground=[("disabled", "white"), ("active", "white")])
-    style.configure("TEntry", fieldbackground=COLORS["card"], padding=6)
-    style.map("TEntry", fieldbackground=[("readonly", COLORS["card"])],
-              foreground=[("readonly", COLORS["text"])])
-    style.configure("TCheckbutton", background=COLORS["card"], padding=4)
-    style.map("TCheckbutton", background=[("active", COLORS["card"])])
+    style.configure("Title.TLabel", background=COLORS["background"], foreground=COLORS["text"])
+    style.configure("Section.TLabel", background=COLORS["card"], foreground=COLORS["text"])
+
+    # Buttons: white plate, visible rim, blue hover, clear pressed state.
+    style.configure("TButton", background=COLORS["card"], foreground=COLORS["text"],
+                    bordercolor=COLORS["border_strong"], lightcolor=COLORS["border_strong"],
+                    darkcolor=COLORS["border_strong"], borderwidth=1, relief="solid",
+                    padding=(14, 9), focusthickness=0, anchor="center")
+    style.map("TButton",
+              background=[("disabled", "#F2F4F9"), ("pressed", "#CBDCFB"),
+                          ("active", COLORS["primary_soft"])],
+              foreground=[("disabled", "#97A3B6")],
+              bordercolor=[("pressed", COLORS["primary"]), ("active", COLORS["primary"])],
+              lightcolor=[("active", COLORS["primary"])],
+              darkcolor=[("active", COLORS["primary"])])
+
+    style.configure("Accent.TButton", background=COLORS["primary"], foreground="#FFFFFF",
+                    bordercolor=COLORS["primary_dark"], lightcolor=COLORS["primary"],
+                    darkcolor=COLORS["primary_dark"], borderwidth=1, relief="solid",
+                    padding=(16, 10))
+    style.map("Accent.TButton",
+              background=[("disabled", "#A9BFF7"), ("pressed", COLORS["primary_dark"]),
+                          ("active", "#1A46BF")],
+              foreground=[("disabled", "#FFFFFF"), ("active", "#FFFFFF")],
+              bordercolor=[("active", COLORS["primary_dark"])])
+
+    # Language toggle: compact segmented control at the top-right.
+    style.configure("Lang.TButton", padding=(12, 4), relief="solid", borderwidth=1,
+                    background=COLORS["card"], foreground=COLORS["muted"],
+                    bordercolor=COLORS["border_strong"])
+    style.map("Lang.TButton",
+              background=[("active", COLORS["primary_soft"]), ("pressed", COLORS["primary_soft"])],
+              foreground=[("active", COLORS["primary"])])
+    style.configure("LangActive.TButton", padding=(12, 4), relief="solid", borderwidth=1,
+                    background=COLORS["primary"], foreground="#FFFFFF",
+                    bordercolor=COLORS["primary_dark"])
+    style.map("LangActive.TButton",
+              background=[("active", COLORS["primary_dark"]), ("pressed", COLORS["primary_dark"])],
+              foreground=[("active", "#FFFFFF")])
+
+    # Fields: white with a visible rim so they read as editable.
+    style.configure("TEntry", fieldbackground=COLORS["field"], foreground=COLORS["text"],
+                    bordercolor=COLORS["border_strong"], lightcolor=COLORS["border_strong"],
+                    darkcolor=COLORS["border_strong"], borderwidth=1, relief="solid", padding=7)
+    style.map("TEntry",
+              fieldbackground=[("readonly", "#F6F8FC")],
+              foreground=[("readonly", COLORS["text"])],
+              bordercolor=[("focus", COLORS["primary"])],
+              lightcolor=[("focus", COLORS["primary"])],
+              darkcolor=[("focus", COLORS["primary"])])
+    style.configure("TCombobox", fieldbackground=COLORS["field"], background=COLORS["card"],
+                    foreground=COLORS["text"], arrowcolor=COLORS["primary"],
+                    bordercolor=COLORS["border_strong"], lightcolor=COLORS["border_strong"],
+                    darkcolor=COLORS["border_strong"], borderwidth=1, relief="solid", padding=6)
+    style.map("TCombobox",
+              fieldbackground=[("readonly", COLORS["field"])],
+              foreground=[("readonly", COLORS["text"])],
+              selectbackground=[("readonly", COLORS["primary_soft"])],
+              selectforeground=[("readonly", COLORS["text"])],
+              bordercolor=[("focus", COLORS["primary"])],
+              lightcolor=[("focus", COLORS["primary"])],
+              darkcolor=[("focus", COLORS["primary"])])
+    style.configure("TCheckbutton", background=COLORS["card"], foreground=COLORS["text"],
+                    padding=4, focuscolor=COLORS["primary"])
+    style.map("TCheckbutton",
+              background=[("active", COLORS["card"])],
+              foreground=[("active", COLORS["primary"])])
+
+    # Data views
     style.configure("Treeview", background=COLORS["card"], fieldbackground=COLORS["card"],
-                    foreground=COLORS["text"], borderwidth=0)
-    style.map("Treeview", background=[("selected", "#DBEAFE")], foreground=[("selected", COLORS["text"])])
-    style.configure("Treeview.Heading", background="#EEF2F8", foreground=COLORS["text"], padding=8)
+                    foreground=COLORS["text"], borderwidth=1, relief="solid",
+                    bordercolor=COLORS["border"], rowheight=26)
+    style.map("Treeview", background=[("selected", COLORS["primary_soft"])],
+              foreground=[("selected", COLORS["text"])])
+    style.configure("Treeview.Heading", background="#E4EBF7", foreground=COLORS["text"],
+                    bordercolor=COLORS["border"], padding=8, relief="flat")
+
+    # Scrollbars: visible trough and a thumb that reads as draggable.
+    style.configure("TScrollbar", background="#C3CFE2", troughcolor="#E7EDF7",
+                    bordercolor="#E7EDF7", arrowcolor=COLORS["muted"], borderwidth=0)
+    style.map("TScrollbar", background=[("active", COLORS["border_strong"])])
 
 
 def window_fonts(window: tk.Misc, dpi: int) -> dict[str, tkfont.Font]:
@@ -77,15 +154,17 @@ def window_fonts(window: tk.Misc, dpi: int) -> dict[str, tkfont.Font]:
             fonts[key].configure(family=face, size=-max(1, round(points * dpi / 72)), weight=weight)
     style = ttk.Style(window)
     for suffix in ("TLabel", "Card.TLabel", "Muted.TLabel", "Card.Muted.TLabel", "TButton",
-                   "Accent.TButton", "TCheckbutton", "TEntry"):
+                   "Accent.TButton", "TCheckbutton", "TEntry", "Lang.TButton", "LangActive.TButton"):
         style.configure(f"{prefix}.{suffix}", font=fonts["body"])
-    style.configure(f"{prefix}.Title.TLabel", font=fonts["title"])
-    style.configure(f"{prefix}.Section.TLabel", font=fonts["section"], background=COLORS["card"])
+    style.configure(f"{prefix}.Title.TLabel", font=fonts["title"], background=COLORS["card"],
+                    foreground=COLORS["text"])
+    style.configure(f"{prefix}.Section.TLabel", font=fonts["section"], background=COLORS["card"],
+                    foreground=COLORS["text"])
     style.configure(f"{prefix}.Treeview", font=fonts["body"], rowheight=round(32 * dpi / 96))
     style.configure(f"{prefix}.Treeview.Heading", font=fonts["section"])
     if prefix == "Main":
         for suffix in ("TLabel", "Card.TLabel", "Muted.TLabel", "Card.Muted.TLabel", "TButton",
-                       "Accent.TButton", "TCheckbutton", "TEntry"):
+                       "Accent.TButton", "TCheckbutton", "TEntry", "Lang.TButton", "LangActive.TButton"):
             style.configure(suffix, font=fonts["body"])
         style.configure("Title.TLabel", font=fonts["title"])
         style.configure("Section.TLabel", font=fonts["section"], background=COLORS["card"])

@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from offlook.core.git_diff import GitComparison
+from offlook.ui.i18n import tr
 from offlook.ui.theme import COLORS, size_window, window_fonts
 from offlook.platforms.windows_dpi import window_dpi
 
@@ -14,7 +15,7 @@ def show_diff(parent: tk.Misc, comparison: GitComparison) -> tk.Toplevel:
     """Create a read-only, color-highlighted line comparison window."""
     window = tk.Toplevel(parent)
     window._offlook_font_prefix = "Diff"
-    window.title(f"Git comparison — {comparison.path.name}")
+    window.title(tr("diff.title", name=comparison.path.name))
     window.transient(parent)
     dpi = window_dpi(window.winfo_id())
     fonts = window_fonts(window, dpi)
@@ -22,9 +23,9 @@ def show_diff(parent: tk.Misc, comparison: GitComparison) -> tk.Toplevel:
     window.configure(background=COLORS["background"])
     heading = ttk.Frame(window, style="Card.TFrame", padding=16)
     heading.pack(fill="x", padx=16, pady=(16, 8))
-    ttk.Label(heading, text=f"{comparison.path.name} — working tree vs HEAD",
+    ttk.Label(heading, text=tr("diff.heading", name=comparison.path.name),
               style="Diff.Title.TLabel").pack(anchor="w")
-    status = "No line differences." if not comparison.changed else "Added green · deleted red · modified amber"
+    status = tr("diff.empty") if not comparison.changed else tr("diff.legend")
     ttk.Label(heading, text=f"{comparison.repository} · {status}",
               style="Diff.Card.Muted.TLabel").pack(anchor="w", pady=(4, 0))
     frame = ttk.Frame(window, style="Card.TFrame", padding=12)

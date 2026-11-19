@@ -66,16 +66,16 @@ class ShortcutIntegrationTests(unittest.TestCase):
         self.fail('Coordinator did not reach expected state')
     def start(self):
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:len(self.app.listeners)==3)
+        self.wait_for(lambda:len(self.app.listeners)==4)
     def test_search_failure_does_not_disable_preview_or_diff(self):
         NativeListener.failures={'Ctrl+Q'}
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:set(self.app.listeners)=={'preview','diff'})
+        self.wait_for(lambda:set(self.app.listeners)=={'preview','diff','convert'})
         self.assertEqual(self.app.listeners['diff'].combo,'Ctrl+Alt+D')
     def test_preview_failure_does_not_disable_other_actions(self):
         NativeListener.failures={'Ctrl+Space'}
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:set(self.app.listeners)=={'search','diff'})
+        self.wait_for(lambda:set(self.app.listeners)=={'search','diff','convert'})
         self.assertEqual(self.app.listeners['search'].combo,'Ctrl+Q')
     def test_search_and_diff_replacements_preserve_other_bindings(self):
         self.start()
@@ -116,7 +116,7 @@ class ShortcutIntegrationTests(unittest.TestCase):
         self.assertTrue(all(listener.is_stopped for listener in old.values()))
         self.assertFalse(create_context(self.path).config.current.hotkey_enabled)
         self.app.enabled.set(True);self.app._set_hotkeys_enabled()
-        self.wait_for(lambda:len(self.app.listeners)==3)
+        self.wait_for(lambda:len(self.app.listeners)==4)
     def test_selected_apply_drafts_and_duplicate_rejection(self):
         self.start()
         self.app.action.set('Search files');self.app._select_action()

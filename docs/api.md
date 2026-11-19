@@ -71,6 +71,7 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
 | ai_enabled / ai_base_url / ai_api_key / ai_model | False / https://api.deepseek.com / "" / deepseek-chat |
+| language | en; also zh. Selects the interface language; `offlook.ui.i18n.tr` reads it. |
 
 The four combinations are canonicalized with `parse_hotkey` and must be pairwise distinct even when `hotkey_enabled` is false. Invalid syntax raises `ConfigError` with its `HotkeyError` cause; duplicate errors name both conflicting fields. Missing shortcut fields in old JSON use defaults without rewriting the file; existing collisions are configuration errors, not silently reset. These combinations are defaults, not permanently reserved keys.
 
