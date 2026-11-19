@@ -28,13 +28,13 @@ MARKDOWN_EXTENSIONS = (".md", ".markdown")
 PDF_EXTENSIONS = (".pdf",)
 CODE_EXTENSIONS = (
     ".py", ".pyw", ".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".toml",
-    ".xml", ".html", ".css", ".c", ".h", ".cpp", ".hpp", ".java", ".cs", ".go", ".rs",
+    ".xml", ".html", ".htm", ".css", ".c", ".h", ".cpp", ".hpp", ".java", ".cs", ".go", ".rs",
     ".sql", ".sh", ".ps1", ".bat",
 )
 CSV_EXTENSIONS = (".csv", ".tsv")
 DOCUMENT_EXTENSIONS = (
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp", ".rtf",
+    ".odt", ".ods", ".odp", ".rtf", ".zip",
 )
 DEFAULT_SUPPORTED_EXTENSIONS = (
     IMAGE_EXTENSIONS + TEXT_EXTENSIONS + MARKDOWN_EXTENSIONS + PDF_EXTENSIONS
