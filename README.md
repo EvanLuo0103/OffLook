@@ -2,7 +2,7 @@
 
 An offline file previewer for Windows with GUI and CLI interfaces. All files are processed locally, without uploads or external links.
 
-![Main window, Chinese interface](docs/images/main-window-zh.png)
+![Main window, Chinese interface](docs/images/main-window-en.png)
 
 The interface is bilingual: switch between English and Chinese with the buttons at the top right. See [MODIFICATIONS.md](MODIFICATIONS.md) for the changes in this build and [GITHUB-SETUP.md](GITHUB-SETUP.md) for the Git workflow.
 
@@ -25,7 +25,7 @@ No virtual environment is used. The initial installation downloads dependencies;
 - Use **Search files** to choose a local folder, search recursively by filename, and filter by document type, including Word, Excel, and PowerPoint files; double-click a result to preview it.
 - In File Explorer, select one local folder, or open a local folder with nothing selected, and press the default **Ctrl+Q** Search files shortcut. It loads the folder and focuses the filename field; click **Search** to run the search. A selected regular file or multiple items is an error.
 - Use the separate **Git comparison** card and click **Compare with Git HEAD**, or press the default **Ctrl+Alt+D** shortcut on a selected Explorer file, to compare its working-tree contents with the latest committed version. Added, deleted, and modified lines are highlighted.
-- Select one or more files in File Explorer and press the default **Alt+C** conversion shortcut to open a **conversion wheel**, then pick a target format to convert locally — images ↔ PNG/JPEG/BMP/GIF/TIFF/WebP/ICO, images → PDF, PDF → images, text/Markdown/code/CSV → PDF/TXT/Word, and Word/Excel/PowerPoint → PDF/TXT/CSV/images. A **Quality** selector chooses `auto` (keep images/layout via LibreOffice when installed), `text` (text-only), or `office` (require LibreOffice). You can also click **Choose files to convert**.
+- Select one or more files in File Explorer and press the default **Alt+C** conversion shortcut to open the conversion wheel, then choose a local operation. Images convert between PNG/JPEG/BMP/GIF/TIFF/WebP/ICO and to PDF; PDFs convert to images; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Office documents support PDF, TXT, CSV, or image output where available; legacy `.doc`, `.xls`, and `.ppt` files require LibreOffice for PDF conversion. HTML files can convert to PDF or TXT, and ZIP archives can be extracted locally. The **Quality** selector offers `auto` (use LibreOffice when available), `text` (text-only), and `office` (require LibreOffice). You can also click **Choose files to convert**.
 - Use the **Filter files** card to browse a folder and check any combination of formats; **Apply filter** lists every matching file and double-clicking one previews it.
 - The **AI file assistant** card is an opt-in port for your own AI. Enter an OpenAI-compatible base URL (e.g. DeepSeek), model, and API key, then describe a file task in plain language; the assistant can call OffLook's local list/filter/move/copy/organize tools to archive and organize files.
 - To test the configured Search files key separately, run `py -m offlook diagnose-search-shortcut`, or `py -m offlook --config '<path>' diagnose-search-shortcut` for a custom config. The main app and other instances must release that key first. The diagnostic creates no GUI, tests the saved key even if the shared switch is off, and does not change settings; Ctrl+C exits successfully.
