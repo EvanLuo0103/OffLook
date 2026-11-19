@@ -35,6 +35,7 @@ TARGET_FORMATS: tuple[tuple[str, str, str], ...] = (
     (".docx", "Word (.docx)", "document"),
     (".xlsx", "Excel (.xlsx)", "document"),
     (".csv", "CSV table", "text"),
+    (".extract", "Extract archive", "document"),
 )
 
 _LABELS: dict[str, str] = {ext: label for ext, label, _group in TARGET_FORMATS}
@@ -47,6 +48,7 @@ _ALIASES: dict[str, str] = {
     "webp": ".webp", "ico": ".ico", "txt": ".txt", "text": ".txt",
     "docx": ".docx", "doc": ".docx", "xlsx": ".xlsx", "xls": ".xlsx",
     "csv": ".csv",
+    "extract": ".extract",
 }
 
 # Source categories that can reach each target. Ordering also drives the wheel's
@@ -496,10 +498,78 @@ def _office_to_pdf(source: Path, directory: Path) -> tuple[Path, ...]:
     return _office_convert(source, directory, "pdf", ".pdf")
 
 
+def _word_to_pdf(source: Path, directory: Path) -> tuple[Path, ...]:
+    """Convert DOCX to PDF through Microsoft Word using docx2pdf."""
+    try:
+        from docx2pdf import convert
+    except ImportError as exc:
+        raise ConversionError(
+            "DOCX-to-PDF via Microsoft Word requires the optional docx2pdf package"
+        ) from exc
+
+    destination = _unique_path(directory, source.stem, ".pdf")
+    try:
+        convert(str(source.resolve()), str(destination.resolve()))
+    except Exception as exc:
+        raise ConversionError(
+            "DOCX-to-PDF via Microsoft Word failed. Check that Microsoft Word "
+            f"is installed and available: {exc}"
+        ) from exc
+
+    if not destination.is_file():
+        raise ConversionError("Microsoft Word did not produce a PDF output")
+
+    return (destination,)
+
+
 def _office_to_images(source: Path, directory: Path, extension: str) -> tuple[Path, ...]:
     """Render each presentation slide to an image via LibreOffice."""
     convert_to = "jpg" if extension == ".jpg" else "png"
     return _office_convert(source, directory, convert_to, extension)
+
+
+def _html_to_text(source: Path) -> str:
+    """Extract readable text from HTML, ignoring script and style contents."""
+    from html.parser import HTMLParser
+
+    class TextExtractor(HTMLParser):
+        BLOCK_TAGS = {
+            "address", "article", "br", "div", "h1", "h2", "h3", "h4",
+            "h5", "h6", "li", "p", "section", "tr",
+        }
+
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.parts: list[str] = []
+            self.hidden_depth = 0
+
+        def handle_starttag(self, tag: str, attrs) -> None:
+            if tag in ("script", "style"):
+                self.hidden_depth += 1
+            elif not self.hidden_depth and tag in self.BLOCK_TAGS:
+                self.parts.append("\n")
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag in ("script", "style") and self.hidden_depth:
+                self.hidden_depth -= 1
+            elif not self.hidden_depth and tag in self.BLOCK_TAGS:
+                self.parts.append("\n")
+
+        def handle_data(self, data: str) -> None:
+            if not self.hidden_depth:
+                self.parts.append(data)
+
+    try:
+        html = source.read_text(encoding="utf-8", errors="replace")
+        parser = TextExtractor()
+        parser.feed(html)
+        return "\n".join(
+            line.strip()
+            for line in "".join(parser.parts).splitlines()
+            if line.strip()
+        )
+    except OSError as exc:
+        raise ConversionError(f"Cannot read HTML file: {exc}") from exc
 
 
 # Target converters keyed by canonical suffix. Each converter maps one source
@@ -518,7 +588,14 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
     use_office = resolved_mode == "office" or (resolved_mode == "auto" and _office_available())
     suffix = source.suffix.lower()
     outputs: tuple[Path, ...] = ()
-    if extension in (".png", ".jpg", ".bmp", ".gif", ".tiff", ".webp", ".ico"):
+    if extension == ".extract":
+        if suffix != ".zip":
+            raise ConversionError("Extract archive is available only for ZIP and 7z files")
+        from .archive_extract import extract_archive
+
+        destination = _unique_path(directory, source.stem, "_extracted")
+        outputs = extract_archive(source, destination)
+    elif extension in (".png", ".jpg", ".bmp", ".gif", ".tiff", ".webp", ".ico"):
         if kind is FileKind.IMAGE:
             outputs = _convert_image_to_image(source, directory, extension)
         elif kind is FileKind.PDF:
@@ -533,15 +610,32 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
         if kind is FileKind.IMAGE:
             outputs = _convert_image_to_pdf(source, directory)
         elif kind in _TEXT_KINDS:
-            outputs = _text_to_pdf(source, directory)
-        elif kind is FileKind.DOCUMENT:
-            if suffix == ".docx":
-                if use_office:
+            if suffix in (".html", ".htm"):
+                if resolved_mode == "office" or (
+                    resolved_mode == "auto" and use_office
+                ):
                     outputs = _office_to_pdf(source, directory)
                 else:
                     destination = _unique_path(directory, source.stem, ".pdf")
-                    _write_raster_pdf(destination, "\n".join(_docx_paragraphs(source)))
+                    _write_raster_pdf(destination, _html_to_text(source))
                     outputs = (destination,)
+            else:
+                outputs = _text_to_pdf(source, directory)
+        elif kind is FileKind.DOCUMENT:
+            if suffix == ".docx":
+                if resolved_mode == "text":
+                    destination = _unique_path(directory, source.stem, ".pdf")
+                    _write_raster_pdf(
+                        destination,
+                        "\n".join(_docx_paragraphs(source)),
+                    )
+                    outputs = (destination,)
+                elif resolved_mode == "office":
+                    outputs = _office_to_pdf(source, directory)
+                else:  # auto mode: use Microsoft Word
+                    outputs = _word_to_pdf(source, directory)
+            elif suffix in (".doc", ".xls", ".ppt"):
+                outputs = _office_to_pdf(source, directory)
             elif suffix in (".pptx", ".pptm"):
                 if use_office:
                     outputs = _office_to_pdf(source, directory)
@@ -559,7 +653,14 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
             raise ConversionError("This file type cannot be converted to PDF")
     elif extension == ".txt":
         if kind in _TEXT_KINDS:
-            outputs = _convert_text_to_txt(source, directory)
+            if suffix in (".html", ".htm"):
+                destination = _unique_path(directory, source.stem, ".txt")
+                destination.write_text(
+                    _html_to_text(source), encoding="utf-8", newline="\n"
+                )
+                outputs = (destination,)
+            else:
+                outputs = _convert_text_to_txt(source, directory)
         elif kind is FileKind.DOCUMENT:
             if suffix == ".docx":
                 outputs = _docx_to_text(source, directory, ".txt")
@@ -735,6 +836,16 @@ def reachable_targets(sources: Iterable[str | Path], mode: str = "auto") -> tupl
     resolved_mode = normalize_mode(mode)
     per_file: list[set[str]] = []
     for path in paths:
+        suffix = path.suffix.lower()
+        if suffix == ".zip":
+            per_file.append({".extract"})
+            continue
+        if suffix in (".doc", ".xls", ".ppt"):
+            per_file.append({".pdf"} if resolved_mode != "text" else set())
+            continue
+        if suffix in (".html", ".htm"):
+            per_file.append({".pdf", ".txt"})
+            continue
         try:
             kind = _source_kind(path)
         except (OSError, ConversionError):
