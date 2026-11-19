@@ -1,18 +1,12 @@
-"""Radial (wheel) menu for choosing a conversion target format.
-
-The wheel is a borderless, topmost Toplevel that arranges one button per target
-around a circle and closes on Esc, a background click, or focus loss. It never
-performs conversion itself — it only reports the chosen format to the caller.
-"""
+"""Dropdown dialog for choosing a conversion target format."""
 
 from __future__ import annotations
 
-import math
 import tkinter as tk
 from collections.abc import Callable, Sequence
+from tkinter import ttk
 
 from offlook.ui.i18n import tr
-from offlook.ui.theme import COLORS
 
 
 def show_conversion_wheel(
@@ -21,83 +15,76 @@ def show_conversion_wheel(
     on_choose: Callable[[str], None],
     on_cancel: Callable[[], None] | None = None,
 ) -> tk.Toplevel:
-    """Create a radial format menu and return it; call on_choose once, then close.
-
-    ``options`` is a sequence of ``(extension, label)`` pairs. The window centers
-    itself on the current pointer position and owns a transient grab so focus
-    loss reliably dismisses it.
-    """
+    """Show a dropdown of output formats, with a cancel choice and button."""
     window = tk.Toplevel(parent)
-    window.overrideredirect(True)
-    window.attributes("-topmost", True)
-    window.configure(background=COLORS["card"])
+    window.title(tr("wheel.title"))
+    window.transient(parent)
+    window.resizable(False, False)
 
-    count = len(options)
-    radius = 120 if count <= 8 else 150
-    padding = 46
-    center = radius + padding
-    size = center * 2
-    pointer_x = window.winfo_pointerx()
-    pointer_y = window.winfo_pointery()
-    window.geometry(f"{size}x{size}+{pointer_x - center}+{pointer_y - center}")
+    frame = ttk.Frame(window, padding=16)
+    frame.pack(fill="both", expand=True)
 
-    canvas = tk.Canvas(window, width=size, height=size, highlightthickness=0,
-                       background=COLORS["card"])
-    canvas.pack(fill="both", expand=True)
-    canvas.create_oval(padding // 2, padding // 2, size - padding // 2,
-                       size - padding // 2, fill=COLORS["background"],
-                       outline=COLORS["border"], width=2)
-    canvas.create_text(center, center - 14, text=tr("wheel.title"), fill=COLORS["muted"],
-                       font=("Segoe UI", 10, "bold"))
-    canvas.create_text(center, center + 14, text=tr("wheel.count", n=count), fill=COLORS["muted"],
-                       font=("Segoe UI", 9))
+    ttk.Label(frame, text=tr("wheel.title")).pack(anchor="w", pady=(0, 8))
 
-    state: dict[str, object] = {"chosen": False, "ready": False}
+    cancel_choice = "Cancel conversion"
+    choices = [cancel_choice, *(label for _extension, label in options)]
+    selected = tk.StringVar(value=choices[1] if len(choices) > 1 else cancel_choice)
 
-    def close() -> None:
+    dropdown = ttk.Combobox(
+        frame,
+        textvariable=selected,
+        values=choices,
+        state="readonly",
+        width=32,
+    )
+    dropdown.pack(fill="x")
+    dropdown.focus_set()
+
+    state = {"finished": False}
+
+    def finish(extension: str | None) -> None:
+        if state["finished"]:
+            return
+        state["finished"] = True
         try:
             window.destroy()
         except tk.TclError:
             pass
 
-    def finish(extension: str | None) -> None:
-        if state["chosen"]:
-            return
-        state["chosen"] = True
-        close()
         if extension is not None:
             on_choose(extension)
         elif on_cancel is not None:
             on_cancel()
 
-    buttons: list[tk.Button] = []
-    for index, (extension, label) in enumerate(options):
-        angle = math.radians(-90 + 360 / count * index)
-        x = center + radius * math.cos(angle)
-        y = center + radius * math.sin(angle)
-        button = tk.Button(window, text=label, relief="flat", borderwidth=0,
-                           background=COLORS["primary"], foreground="white",
-                           activebackground="#1D4ED8", activeforeground="white",
-                           cursor="hand2", padx=10, pady=4,
-                           command=lambda ext=extension: finish(ext))
-        button.place(x=x, y=y, anchor="center")
-        buttons.append(button)
+    def convert_selected() -> None:
+        index = dropdown.current()
+        if index <= 0:
+            finish(None)
+        else:
+            finish(options[index - 1][0])
 
-    canvas.bind("<Button-1>", lambda _event: finish(None))
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(12, 0))
+
+    convert_button = ttk.Button(buttons, text="Convert", command=convert_selected)
+    convert_button.pack(side="left")
+    if not options:
+        convert_button.state(["disabled"])
+
+    ttk.Button(
+        buttons,
+        text="Cancel",
+        command=lambda: finish(None),
+    ).pack(side="right")
+
+    window.bind("<Return>", lambda _event: convert_selected())
     window.bind("<Escape>", lambda _event: finish(None))
-    window.bind("<FocusOut>", lambda _event: window.after(30, lambda: _dismiss_on_focus_out(window, state, finish)))
     window.protocol("WM_DELETE_WINDOW", lambda: finish(None))
-    window.after(80, lambda: (state.update(ready=True), window.focus_force()))
+
+    window.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() - window.winfo_width()) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - window.winfo_height()) // 2
+    window.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    window.grab_set()
     return window
-
-
-def _dismiss_on_focus_out(window: tk.Toplevel, state: dict[str, object], finish: Callable[[str | None], None]) -> None:
-    """Close the wheel when focus genuinely left it (not during construction)."""
-    if not state.get("ready") or state.get("chosen"):
-        return
-    try:
-        focused = window.focus_get()
-    except tk.TclError:
-        return
-    if focused is None:
-        finish(None)
