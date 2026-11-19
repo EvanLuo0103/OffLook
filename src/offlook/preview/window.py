@@ -58,6 +58,9 @@ class PreviewWindow:
         self._data: PreviewData | None = None
         self._raster = self._photo = self._image = None
         self._display_size = None
+        self._image_canvas = None
+        self._image_item = None
+        self._zoom = 1.0
         self._page_index = 0
         self.window = tk.Toplevel(parent)
         self.window._offlook_font_prefix = "Preview"
@@ -73,7 +76,6 @@ class PreviewWindow:
         self._layout()
         # The parent must finish assigning its view before the first request runs.
         self._idle_job = self.window.after_idle(self._initial_render)
-
 
     def _build(self, always_on_top: bool) -> None:
         self._header = ttk.Frame(self.window, style="Card.TFrame")
@@ -97,6 +99,20 @@ class PreviewWindow:
         self._previous.pack(side="left")
         self._page_label.pack(side="left", padx=12)
         self._following.pack(side="left")
+        self._zoom_controls = ttk.Frame(self._nav, style="Card.TFrame")
+        self._zoom_out = ttk.Button(self._zoom_controls, text="−", width=3,
+                                    command=lambda: self._change_zoom(1 / 1.25), style="Preview.TButton")
+        self._zoom_label = ttk.Label(self._zoom_controls, text="100%", width=6,
+                                     style="Preview.Card.TLabel", anchor="center")
+        self._zoom_in = ttk.Button(self._zoom_controls, text="+", width=3,
+                                   command=lambda: self._change_zoom(1.25), style="Preview.TButton")
+        self._zoom_fit = ttk.Button(self._zoom_controls, text="Fit", command=self._reset_zoom,
+                                    style="Preview.TButton")
+        self._zoom_out.pack(side="left", padx=(0, 4))
+        self._zoom_label.pack(side="left", padx=4)
+        self._zoom_in.pack(side="left", padx=4)
+        self._zoom_fit.pack(side="left", padx=(4, 0))
+        self._zoom_controls.pack(side="right")
         self._footer = ttk.Frame(self.window)
         self._footer.pack(side="bottom", fill="x")
         self._status = ttk.Label(self._footer, text="Loading…", style="Preview.Muted.TLabel", justify="left")
@@ -122,7 +138,6 @@ class PreviewWindow:
             self._nav.pack_configure(padx=gap, pady=(0, self._px(8)))
         self._footer.pack_configure(padx=gap, pady=(0, self._px(12)))
 
-
     def _initial_render(self) -> None:
         self._idle_job = None
         if self._closing:
@@ -131,8 +146,6 @@ class PreviewWindow:
             self._idle_job = self.window.after(25, self._initial_render)
             return
         self._request_viewport(0)
-
-
 
     def _space(self, event):
         """Close only for unmodified Space, keeping custom modifier shortcuts intact."""
@@ -166,7 +179,6 @@ class PreviewWindow:
             self.window.after_cancel(self._resize_job)
         self._resize_job = self.window.after(150, self._viewport_changed)
 
-
     def _viewport_changed(self) -> None:
         self._resize_job = None
         if self._closing:
@@ -179,15 +191,14 @@ class PreviewWindow:
             page = self._submitted[0] if self._submitted is not None else self._page_index
             self._request_viewport(page)
 
-
     def _viewport(self) -> tuple[int, int]:
         # Tk sizes already represent physical pixels; do not multiply them by DPI.
         return bounded_viewport(self.body.winfo_width() - 2 * self._padding,
                                 self.body.winfo_height() - 2 * self._padding)
 
-
     def _request_viewport(self, page: int) -> None:
         width, height = self._viewport()
+        width, height = bounded_viewport(math.ceil(width * self._zoom), math.ceil(height * self._zoom))
         if self._suspended:
             self._pending_viewport = True
             return
@@ -199,6 +210,24 @@ class PreviewWindow:
         self.set_loading("Updating resolution…" if self._image is not None else "Loading…")
         self.on_render(page, width, height)
 
+    def _change_zoom(self, factor: float) -> None:
+        """Change raster magnification while retaining the current image during rerender."""
+        if self._closing or self._raster is None:
+            return
+        self._zoom = min(4.0, max(0.25, self._zoom * factor))
+        self._zoom_label.configure(text=f"{round(self._zoom * 100)}%")
+        self._fit_image()
+        page = self._submitted[0] if self._submitted is not None else self._page_index
+        self._request_viewport(page)
+
+    def _reset_zoom(self) -> None:
+        if self._closing or self._raster is None:
+            return
+        self._zoom = 1.0
+        self._zoom_label.configure(text="100%")
+        self._fit_image()
+        page = self._submitted[0] if self._submitted is not None else self._page_index
+        self._request_viewport(page)
 
     def _page(self, offset: int) -> None:
         if self._loading or self._suspended or self._data is None or self._data.file_info.kind != FileKind.PDF:
@@ -206,7 +235,6 @@ class PreviewWindow:
         page = self._data.page_index + offset
         if 0 <= page < self._data.page_count:
             self._request_viewport(page)
-
 
     def set_loading(self, message: str) -> None:
         """Show a loading/status message and disable page navigation."""
@@ -216,7 +244,6 @@ class PreviewWindow:
         self._status.configure(text=message, foreground=COLORS["muted"])
         self._previous.state(["disabled"])
         self._following.state(["disabled"])
-
 
     def set_render_suspended(self, suspended: bool) -> None:
         """Pause viewport callbacks while a parent-owned file-selection task runs."""
@@ -242,7 +269,6 @@ class PreviewWindow:
                 self._request_viewport(page)
             self._pending_viewport = False
 
-
     def show(self, data: PreviewData) -> None:
         """Present worker-bounded content without opening or decoding the source file."""
         if self._closing:
@@ -264,8 +290,8 @@ class PreviewWindow:
                                    if info.kind == FileKind.PDF and isinstance(data.content, RasterContent) else "")
         for child in self.body.winfo_children():
             child.destroy()
-        self._image = None
-        self._photo = None
+        self._image_canvas = self._image_item = None
+        self._image = self._photo = None
         self._raster = data.content if isinstance(data.content, RasterContent) else None
         content = data.content
         if self._raster is not None:
@@ -278,46 +304,66 @@ class PreviewWindow:
             self._show_text(content.text if isinstance(content, TextContent) else str(content))
         self._completed = self._submitted
         is_pdf = self._page_label.cget("text") != ""
-        if is_pdf:
+        if is_pdf or self._raster is not None:
             if not self._nav.winfo_manager():
                 self._nav.pack(fill="x", padx=self._padding, pady=(0, self._px(8)))
+            if is_pdf:
+                self._previous.pack(side="left")
+                self._page_label.pack(side="left", padx=12)
+                self._following.pack(side="left")
+            else:
+                self._previous.pack_forget()
+                self._page_label.pack_forget()
+                self._following.pack_forget()
         else:
             self._nav.pack_forget()
+        self._zoom_controls.pack(side="right") if self._raster is not None else self._zoom_controls.pack_forget()
         self._previous.state(["!disabled"] if is_pdf and data.page_index > 0 else ["disabled"])
         self._following.state(["!disabled"] if is_pdf and data.page_index + 1 < data.page_count else ["disabled"])
 
     def _fit_image(self) -> None:
-        """Fit the retained worker raster locally; never resample a previous PhotoImage."""
-        if self._closing or self._image is None:
+        """Fit the raster at 100%, then apply manual magnification with canvas scrolling."""
+        if self._closing or self._image is None or self._image_canvas is None:
             return
         from PIL import Image, ImageTk
         width, height = self._viewport()
         source_w, source_h = self._image.size
-        scale = min(1.0, width / source_w, height / source_h)
+        fit = min(1.0, width / source_w, height / source_h)
+        scale = fit * self._zoom
         target = (max(1, math.floor(source_w * scale)), max(1, math.floor(source_h * scale)))
-        if target == self._display_size:
-            return
-        # Larger viewports require a worker render; never invent detail by upscaling.
-        resampling = getattr(Image, "Resampling", Image).LANCZOS
-        image = self._image if target == self._image.size else self._image.resize(target, resampling)
-        try:
-            self._photo = ImageTk.PhotoImage(image, master=self.window)
-            self._image_label.configure(image=self._photo)
-            self._display_size = target
-        finally:
-            if image is not self._image:
-                image.close()
-
-
+        if target != self._display_size:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            image = self._image if target == self._image.size else self._image.resize(target, resampling)
+            try:
+                self._photo = ImageTk.PhotoImage(image, master=self.window)
+                self._image_canvas.itemconfigure(self._image_item, image=self._photo)
+                self._display_size = target
+            finally:
+                if image is not self._image:
+                    image.close()
+        canvas_w = max(1, self._image_canvas.winfo_width())
+        canvas_h = max(1, self._image_canvas.winfo_height())
+        region_w, region_h = max(target[0], canvas_w), max(target[1], canvas_h)
+        x = max(0, (canvas_w - target[0]) // 2)
+        y = max(0, (canvas_h - target[1]) // 2)
+        self._image_canvas.coords(self._image_item, x, y)
+        self._image_canvas.configure(scrollregion=(0, 0, region_w, region_h))
 
     def _show_raster(self, raster: RasterContent) -> None:
         from PIL import Image
         self._image = Image.frombytes("RGBA", (raster.width, raster.height), raster.rgba)
-        self._image_label = ttk.Label(self.body, anchor="center", style="Preview.Card.TLabel")
-        self._image_label.pack(fill="both", expand=True)
+        self._image_canvas = tk.Canvas(self.body, highlightthickness=0, background=COLORS["card"])
+        vertical = ttk.Scrollbar(self.body, orient="vertical", command=self._image_canvas.yview)
+        horizontal = ttk.Scrollbar(self.body, orient="horizontal", command=self._image_canvas.xview)
+        self._image_canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self._image_canvas.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self.body.rowconfigure(0, weight=1)
+        self.body.columnconfigure(0, weight=1)
+        self._image_item = self._image_canvas.create_image(0, 0, anchor="nw")
         self._display_size = None
         self._fit_image()
-
 
     def _show_text(self, value: str) -> None:
         code = self._last_kind == FileKind.CODE
@@ -331,7 +377,6 @@ class PreviewWindow:
             self._markdown(self._text, value)
         self._text.configure(state="disabled")
 
-
     def _show_table(self, content: TableContent) -> None:
         columns = tuple(str(i + 1) for i in range(max((len(row) for row in content.rows), default=1)))
         table = ttk.Treeview(self.body, columns=columns, show="headings", style="Preview.Treeview")
@@ -342,7 +387,6 @@ class PreviewWindow:
         for index, row in enumerate(content.rows):
             table.insert("", "end", values=row, tags=("alternate",) if index % 2 else ())
         self._scrollable(table)
-
 
     def _show_metadata(self, info, content: MetadataContent, notice: str) -> None:
         canvas = tk.Canvas(self.body, highlightthickness=0, background=COLORS["card"])
@@ -410,7 +454,6 @@ class PreviewWindow:
                 return f"{value:.0f} {unit}" if unit == "B" else f"{value:.2f} {unit}"
             value /= 1024
         raise AssertionError("unreachable size unit")
-
 
     @staticmethod
     def _local_time(value: int) -> str:
@@ -484,4 +527,3 @@ class PreviewWindow:
             self.window.destroy()
         finally:
             callback()
-
