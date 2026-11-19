@@ -77,7 +77,7 @@ The **Help** button or F1 opens the offline guide with live status for all three
 
 ## 6. Convert, filter, and use AI
 
-***Convert files**: select one or more files in File Explorer and press **Alt+C** (or change it in **Shortcut settings**) to open the conversion chooser, then select a target format. Alternatively, click **Choose files to convert**. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word, Excel, and PowerPoint files can convert to PDF/TXT/CSV/images where supported. Legacy `.doc`, `.xls`, and `.ppt` files require LibreOffice for PDF conversion. HTML files convert to PDF or TXT, and ZIP archives can be extracted locally.
+**Convert files**: select one or more files in File Explorer and press **Alt+C** (or change it in **Shortcut settings**) to open the conversion chooser, then select a target format. Alternatively, click **Choose files to convert**. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word, Excel, and PowerPoint files can convert to PDF/TXT/CSV/images where supported. Legacy `.doc`, `.xls`, and `.ppt` files require LibreOffice for PDF conversion. HTML files convert to PDF or TXT, and ZIP archives can be extracted locally.
 
 The **Quality** selector controls document fidelity: `auto` uses LibreOffice when installed, `text` produces text-only output, and `office` requires LibreOffice. Output files are placed next to the source and existing files are never overwritten.
 
