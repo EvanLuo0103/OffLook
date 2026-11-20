@@ -4,7 +4,7 @@
 
 An offline file previewer for Windows with GUI and CLI interfaces. Previews and file comparisons run locally without a network connection. The optional AI file assistant contacts the service you configure only when you run it.
 
-![OffLook main window (English)](https://raw.githubusercontent.com/EvanLuo0103/OffLook/main/docs/images/main-window-en.png)
+![OffLook main window (English)](docs/images/main-window-en.png)
 
 Use **中文 / English** to switch the interface language.
 
