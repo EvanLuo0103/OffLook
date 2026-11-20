@@ -20,7 +20,7 @@ DEFAULT_LANGUAGE = "en"
 # a missing translation a KeyError at import time instead of a silent English leak.
 _TEXTS: dict[str, tuple[str, str]] = {
     # Application chrome
-    "app.tagline": ("Lightweight previews · Fully offline", "輕巧預覽 · 全程離線"),
+    "app.tagline": ("Local file previews", "本機檔案預覽"),
     "btn.help": ("Help", "說明"),
     "lang.english": ("English", "English"),
     "lang.chinese": ("中文", "中文"),
@@ -39,29 +39,40 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Preview card
     "btn.choose_file": ("Choose file", "選擇檔案"),
 
-    # Git card
+    # File comparison card and picker
     "btn.compare_files": ("Compare two files", "比對兩個檔案"),
-    "status.diff.default": ("Select two UTF-8 text files to compare.",
-                            "選擇兩個 UTF-8 文字檔進行比對。"),
-    "status.diff.choosing": ("Choose the first file in the file picker…", "請在檔案選擇視窗挑選第一個檔案…"),
-    "status.diff.selected": ("Selected: {name}. Comparing…", "已選擇 {name}，比對中…"),
+    "status.diff.default": ("Choose two local text or Word (.docx) files to compare.",
+                            "請選擇兩個本機文字檔或 Word（.docx）檔進行比對。"),
+    "status.diff.choosing": ("Choose both files in the same window…", "請在同一個視窗內選取兩個檔案…"),
     "status.diff.cancelled": ("File comparison cancelled.", "已取消檔案比對。"),
     "status.diff.running": ("Comparing the two files…", "正在比對兩個檔案…"),
     "status.diff.ready": ("File comparison ready", "檔案比對完成"),
     "status.diff.differences": ("Differences found.", "發現差異。"),
     "status.diff.same": ("No differences between the files.", "兩個檔案沒有差異。"),
+    "compare_picker.folder": ("Folder", "資料夾"),
+    "compare_picker.go": ("Go", "前往"),
+    "compare_picker.up": ("Up", "上一層"),
+    "compare_picker.old": ("Old file", "舊檔案"),
+    "compare_picker.new": ("New file", "新檔案"),
+    "compare_picker.use_old": ("Use selected as old", "使用選取項目作為舊檔"),
+    "compare_picker.use_new": ("Use selected as new", "使用選取項目作為新檔"),
+    "compare_picker.use_both": ("Use both selected", "使用兩個選取項目"),
+    "compare_picker.compare": ("Compare", "比對"),
+    "compare_picker.cancel": ("Cancel", "取消"),
+    "compare_picker.loading": ("Reading folder…", "正在讀取資料夾…"),
+    "compare_picker.folder_error": ("Cannot open folder: {reason}", "無法開啟資料夾：{reason}"),
+    "compare_picker.file_error": ("Cannot use selected files: {reason}", "無法使用選取的檔案：{reason}"),
+    "diff.swap": ("Swap files", "交換檔案"),
 
     # Convert card
     "btn.choose_convert": ("Choose files to convert", "選擇要轉換的檔案"),
-    "hint.convert_shortcut": ("Shortcut: Alt+C in File Explorer on one or more selected files.",
-                              "快捷鍵：在檔案總管選取一或多個檔案後按 Alt+C。"),
+    "hint.convert_shortcut": ("Select files in File Explorer and press the configured Convert files shortcut (default Alt+C).",
+                              "在檔案總管選取檔案後按設定的轉換快捷鍵（預設 Alt+C）。"),
     "label.quality": ("Quality", "品質"),
-    "hint.convert_mode": ("auto = keep images/layout when LibreOffice is installed · "
-                          "text = text-only · office = require LibreOffice",
-                          "auto = 已安裝 LibreOffice 時保留圖片與版面 · "
-                          "text = 只取文字 · office = 必須有 LibreOffice"),
-    "status.convert.default": ("Select files, then pick a target format from the wheel.",
-                               "先選擇檔案，再從格式輪挑選目標格式。"),
+    "hint.convert_mode": ("Quality depends on the file format · DOCX to PDF: auto uses Word, text uses paragraphs, office uses LibreOffice",
+                          "品質視格式而定 · DOCX 轉 PDF：auto 用 Word、text 只取段落、office 用 LibreOffice"),
+    "status.convert.default": ("Select files, then choose a target in the Convert to dialog.",
+                               "先選擇檔案，再從「轉換格式」對話框選擇目標。"),
     "status.convert.none": ("No conversion is available for the selected files.",
                             "所選檔案沒有可用的轉換格式。"),
     "status.convert.busy": ("A conversion is already running.", "已有轉換正在進行。"),
@@ -169,8 +180,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Footer and generic
     "btn.exit": ("Exit", "結束"),
     "btn.hide": ("Hide to tray", "隱藏到系統匣"),
-    "status.initial": ("All files stay on your device. Nothing is uploaded.",
-                       "所有檔案都留在你的電腦，不會上傳。"),
+    "status.initial": ("Preview and file comparison run locally.", "預覽與檔案比對均在本機執行。"),
     "common.separator": ("; ", "；"),
     "status.tray_unavailable": ("System tray unavailable. Use Exit to close OffLook.",
                                 "系統匣無法使用，請用「結束」關閉 OffLook。"),
@@ -189,7 +199,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "kind.other": ("Other", "其他"),
 
     # Conversion wheel
-    "wheel.title": ("Convert to", "轉換為"),
+    "wheel.title": ("Convert to", "轉換格式"),
     "wheel.count": ("{n} format(s)", "{n} 種格式"),
 
     # Preview window
@@ -233,9 +243,11 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Diff window
     "diff.title": ("File comparison — {name}", "檔案比對 — {name}"),
     "diff.heading": ("Comparison: {name}", "比對：{name}"),
-    "diff.subtitle": ("Two files compared line by line", "逐行比對兩個檔案"),
-    "diff.legend": ("Added green · deleted red · modified amber",
-                    "新增＝綠色 · 刪除＝紅色 · 修改＝琥珀色"),
+    "diff.mode.split": ("Split", "並排"),
+    "diff.mode.unified": ("Unified", "統一"),
+    "diff.context.expand": ("Show {n} unchanged lines", "顯示 {n} 行未變更內容"),
+    "diff.no_newline": ("\\ No newline at end of file", "\\ 檔案末尾沒有換行"),
+    "diff.counts": ("{added} added · {deleted} deleted", "新增 {added} 行 · 刪除 {deleted} 行"),
     "diff.empty": ("No line differences.", "沒有行層級的差異。"),
 }
 

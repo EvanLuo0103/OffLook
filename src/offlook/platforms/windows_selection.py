@@ -35,6 +35,7 @@ class SelectionRequest:
     config: PreviewConfig
     allow_folder: bool = False
     multiple: bool = False
+    strict_pair: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,15 +79,18 @@ class ExplorerSelectionProvider:
         """
         return self._get_selected(foreground_hwnd, allow_folder=allow_folder, multiple=False)  # type: ignore[return-value]
 
-    def get_selected_files(self, foreground_hwnd: int, *, allow_folder: bool = False) -> tuple[Path, ...] | None:
+    def get_selected_files(self, foreground_hwnd: int, *, allow_folder: bool = False,
+                           strict_pair: bool = False) -> tuple[Path, ...] | None:
         """Return every selected local file, or None for unsupported/lost focus.
 
         Folders are skipped; an empty selection or a selection with no files
         raises FileAccessError. Use this for batch operations such as conversion.
         """
-        return self._get_selected(foreground_hwnd, allow_folder=allow_folder, multiple=True)  # type: ignore[return-value]
+        return self._get_selected(foreground_hwnd, allow_folder=allow_folder, multiple=True,
+                                  strict_pair=strict_pair)  # type: ignore[return-value]
 
-    def _get_selected(self, foreground_hwnd: int, *, allow_folder: bool, multiple: bool) -> Path | tuple[Path, ...] | None:
+    def _get_selected(self, foreground_hwnd: int, *, allow_folder: bool, multiple: bool,
+                      strict_pair: bool = False) -> Path | tuple[Path, ...] | None:
         if sys.platform != "win32":
             raise FileAccessError("OffLook currently supports only Windows")
         if not isinstance(foreground_hwnd, int) or isinstance(foreground_hwnd, bool):
@@ -120,7 +124,8 @@ class ExplorerSelectionProvider:
             initialized = True
             try:
                 path = _query_foreground(
-                    foreground_hwnd, pythoncom, win32gui, allow_folder=allow_folder, multiple=multiple
+                    foreground_hwnd, pythoncom, win32gui, allow_folder=allow_folder,
+                    multiple=multiple, strict_pair=strict_pair,
                 )
             except Exception as exc:
                 # dynamic.Dispatch frames may retain COM wrappers as ``self``.
@@ -197,7 +202,8 @@ def _desktop_dispatch(windows: Any, pythoncom: Any, variant_type: Any) -> Any:
 
 
 def _query_foreground(
-    foreground_hwnd: int, pythoncom: Any, gui: Any, *, allow_folder: bool = False, multiple: bool = False
+    foreground_hwnd: int, pythoncom: Any, gui: Any, *, allow_folder: bool = False,
+    multiple: bool = False, strict_pair: bool = False,
 ) -> Path | tuple[Path, ...] | None:
     """Inspect candidate HWNDs, then read only a unique matching active view.
 
@@ -259,6 +265,9 @@ def _query_foreground(
             return None
         selected = folder_view.SelectedItems()
         count = int(selected.Count)
+        pair_error = "Select exactly two local files to compare."
+        if strict_pair and count != 2:
+            raise FileAccessError(pair_error)
         if count == 0:
             if allow_folder:
                 try:
@@ -277,9 +286,13 @@ def _query_foreground(
             for index in range(count):
                 item = selected.Item(index)
                 if not bool(item.IsFileSystem) or bool(item.IsFolder):
+                    if strict_pair:
+                        raise FileAccessError(pair_error)
                     continue
                 raw_path = item.Path
                 if not isinstance(raw_path, str) or not raw_path:
+                    if strict_pair:
+                        raise FileAccessError(pair_error)
                     continue
                 collected.append(validate_local_file(raw_path))
             if int(gui.GetForegroundWindow()) != foreground_hwnd:

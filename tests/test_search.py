@@ -1,32 +1,11 @@
 from pathlib import Path
 import tempfile
 import unittest
-import subprocess
 
 from offlook.core import FileKind, find_files
-from offlook.core.git_diff import compare_with_head
 
 
 class SearchTests(unittest.TestCase):
-    def test_compare_working_file_with_git_head(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
-            path = root / "example.txt"
-            path.write_text("same\nold\n", encoding="utf-8")
-            subprocess.run(["git", "-C", str(root), "add", "example.txt"], check=True)
-            subprocess.run(
-                ["git", "-C", str(root), "-c", "user.name=Test", "-c",
-                 "user.email=test@example.com", "commit", "-qm", "initial"],
-                check=True,
-            )
-            path.write_text("same\nnew\nadded\n", encoding="utf-8")
-            comparison = compare_with_head(path)
-            self.assertTrue(comparison.changed)
-            self.assertEqual(
-                [line.kind for line in comparison.lines],
-                ["context", "modified-delete", "modified-add", "modified-add"],
-            )
 
     def test_recursive_case_insensitive_name_and_type_filters(self):
         with tempfile.TemporaryDirectory() as temporary:

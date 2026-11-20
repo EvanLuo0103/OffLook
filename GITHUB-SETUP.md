@@ -1,28 +1,43 @@
 # 上傳到 GitHub 與組員協作
 
-這份文件說明如何把 `OffLook-Modified` 上傳到 GitHub，以及組員要怎麼接手繼續改。
+這份文件說明如何在 Windows 安裝 OffLook、執行測試，以及使用 GitHub 分支與 Pull Request 協作。OffLook 的本機檔案比對不需要 Git、GitHub 帳號或儲存庫。
 
 ---
 
-## 0. 先確認要上傳什麼
+## 1. 從現有儲存庫開始
 
-要上傳的是 **`OffLook-Modified` 這個資料夾**（73 個檔案），不是整個 `default-workspace`。
-資料夾裡已經有 `.gitignore`，會自動排除 `__pycache__/`、`build/`、`*.egg-info/`、`.venv` 等不需要版本控制的東西。
+使用 Windows PowerShell、64 位元 Python 3.11–3.15（含 Tcl/Tk）與 [Git for Windows](https://git-scm.com/download/win)。如果儲存庫是私人的，先接受擁有者的 GitHub 邀請。
 
-> 使用者的設定檔（含 API key）存在 `%LOCALAPPDATA%\OffLook\config.json`，**不在專案資料夾內**，所以不會被上傳。
-
----
-
-## 1. 安裝 Git（目前這台電腦還沒裝）
+### 安裝 Git（尚未安裝時）
 
 ```powershell
 winget install --id Git.Git -e --source winget
 ```
 
-裝完 **關掉 PowerShell 再重開**（PATH 才會生效），然後確認：
+安裝後重開 PowerShell，執行 `git --version` 確認 Git 可用。
+
+### Clone 並啟動 OffLook
+
+用 GitHub 的 **Code** 選單複製儲存庫網址。將下面的 `<repository-url>` 換成該網址，`<clone-directory>` 換成 clone 建立的資料夾名稱：
 
 ```powershell
-git --version
+git clone "<repository-url>"
+cd "<clone-directory>"
+py -m pip install --user --only-binary=:all: -e .
+py -m offlook
+```
+
+若已 clone，只需進入既有的專案根目錄（含 `pyproject.toml`）後安裝，不必再 clone 或執行 `git init`。不要把 ZIP 快照覆蓋到現有 clone。
+
+> 預設的使用者設定檔在 `%LOCALAPPDATA%\OffLook\config.json`。API key 以明文存在該 JSON 中；不要把設定檔或金鑰複製到儲存庫。
+
+### HTTPS 登入
+
+使用 Git for Windows 提供的 **Git Credential Manager**，依 `git clone` 或 `git push` 的提示在瀏覽器登入。若使用 [GitHub CLI](https://cli.github.com/)，可先執行：
+
+```powershell
+gh auth login --hostname github.com --git-protocol https
+gh auth setup-git
 ```
 
 ---
@@ -38,128 +53,92 @@ Email 建議用 GitHub 帳號的信箱，commit 才會正確歸屬到你。
 
 ---
 
-## 3. 建立本機儲存庫並做第一次 commit
+## 3. 首次發布尚未初始化的本機專案（選用）
+
+只有當本機專案還沒有 Git 歷史，且要發布到新的 GitHub 儲存庫時，才使用本節。若要接手現有 GitHub 儲存庫，請使用第 1 節。先在 PowerShell 進入含 `pyproject.toml` 的專案根目錄：
 
 ```powershell
-cd "C:\Users\PC\Documents\deepseek-harness\default-workspace\OffLook-Modified"
+cd "<project-directory>"
 git init -b main
 git add .
 git status
 ```
 
-**先看 `git status` 的結果**，確認清單裡沒有 `__pycache__`、`*.egg-info`、`config.json` 之類的東西，再繼續：
+先檢查 `git status` 裡準備提交的檔案，確認沒有設定檔、金鑰、虛擬環境或打包產物，再提交：
 
 ```powershell
-git commit -m "OffLook 0.3.0: 中文介面、UI 對比度改善、滑鼠滾輪捲動"
+git commit -m "Initial OffLook import"
 ```
 
----
+### 建立 GitHub 遠端儲存庫
 
-## 4. 在 GitHub 建立遠端儲存庫
+1. 打開 [GitHub 的新建儲存庫頁面](https://github.com/new)，填寫儲存庫名稱並選擇 `Private` 或 `Public`。
+2. 不要勾選建立 `README`、`.gitignore` 或 `LICENSE`；本機已經有這些檔案，遠端請保持空白。
+3. 按 **Create repository**，複製頁面提供的 HTTPS 網址。
 
-1. 打開 https://github.com/new
-2. **Repository name**：`offlook`（或 `offlook-project`）
-3. **Visibility**：`Private`（還沒要公開就選這個）或 `Public`
-4. **不要**勾選 "Add a README file"、"Add .gitignore"、"Choose a license"（本機已經有了，勾了會造成第一次 push 衝突）
-5. 按 **Create repository**
-6. 複製頁面上那條 `https://github.com/<你的帳號>/offlook.git`
-
----
-
-## 5. 連接並推上去
+### 連接並推送
 
 ```powershell
-git remote add origin https://github.com/<你的帳號>/offlook.git
+git remote add origin "<repository-url>"
 git push -u origin main
 ```
 
-第一次 push 會跳出登入視窗。GitHub 已經不接受帳號密碼，要用 **Personal Access Token (PAT)** 當密碼：
-
-1. GitHub → 右上頭像 → **Settings** → 左側最下方 **Developer settings**
-2. **Personal access tokens** → **Tokens (classic)** → **Generate new token (classic)**
-3. Note 隨便填（例如 `offlook-laptop`），Expiration 選 30 或 90 天
-4. 勾選 **`repo`**（整個大項）→ **Generate token**
-5. 複製那串 `ghp_...`（**只會顯示一次**）
-6. 回到 PowerShell 的登入視窗：Username 填 GitHub 帳號，Password **貼上 PAT**
-
-> 也可以改用 GitHub CLI，比較省事：
-> ```powershell
-> winget install --id GitHub.cli -e
-> gh auth login
-> ```
-> 之後 push 就不用再輸入 token。
-
-成功後整理一下遠端分支：
-
-```powershell
-git branch -u origin/main
-```
+將 `<repository-url>` 換成剛複製的網址；需要登入時使用第 1 節的 HTTPS 登入方式。
 
 ---
 
-## 6. 邀請組員
+## 4. 邀請組員
 
 1. 進入你的 repo → **Settings** → 左側 **Collaborators**
 2. **Add people** → 輸入組員的 GitHub 使用者名稱或 Email → 選取
 3. 組員會收到 Email 邀請，**必須按接受**才會生效
 
 組員權限說明：
-- **Write**（Collaborators 預設）：可以直接 push
-- 如果想強制走 Pull Request 審核，改用 **Branch protection rule**（Settings → Branches）
+- **Write**：可以推送分支。若要要求以 Pull Request 審核後才能合併至 `main`，請為 `main` 設定分支保護規則。
 
 ---
 
-## 7. 組員怎麼接手
+## 5. 執行測試
+
+在專案根目錄執行下列指令；`pytest` 會收集既有的 `unittest` 測試與 pytest 測試函式：
 
 ```powershell
-git clone https://github.com/<你的帳號>/offlook.git
-cd offlook
-py -m pip install --user --only-binary=:all: -e .
-py -m offlook
+py -m pip install --user pytest
+py -m pytest tests
 ```
 
-跑測試（109 個，全部是 `unittest`，**不需要 pytest**）：
-
-```powershell
-py -m unittest discover -s tests -v
-```
-
-補充需求（選用，只有部分轉換功能需要）：
-```powershell
-py -m pip install --user python-docx openpyxl python-pptx
-```
-以及選用的 LibreOffice（`office` 轉換模式用）。
+`python-docx` 是專案安裝時一併安裝的執行依賴，不用另外安裝。只有使用對應的轉換功能或執行相關測試時，才需要選裝 `python-pptx`、`openpyxl` 或 `docx2pdf`；需要 LibreOffice 的轉換模式則須另外安裝 LibreOffice。各格式所需的後端請見[入門指南](docs/getting-started.md)。
 
 ### 測試環境注意
 
-109 個測試裡有幾個需要「正常 Windows 環境」才跑得過，撿到下列訊息先別慌：
+完整的 Windows 整合測試請在有 Tcl/Tk 的互動式 Windows 桌面，以一般使用者帳號執行。受限環境可能阻擋下列操作：
 
 | 測試 | 需要什麼 |
 | --- | --- |
-| `test_search.test_compare_working_file_with_git_head` | 已安裝 Git（`git --version` 要有反應） |
 | `test_windows_environment.*`、`test_windows_startup.*` | 可寫入 HKCU 登錄檔（一般使用者可以；被群組原則鎖住的環境不行） |
 | `test_search.test_skips_symlinked_files` | 建立符號連結的權限（沒有的話會自動 skip，不算失敗） |
-| `test_conversion.test_text_to_docx`、`test_pptx_text_mode_conversions` | 已安裝 `python-docx` / `python-pptx`（沒裝會自動 skip） |
-| `test_worker_lifecycle.*` | 允許建立具名管道（正常桌面環境都允許） |
+| `test_conversion.test_text_to_docx`、`test_pptx_text_mode_conversions` | DOCX 使用專案一併安裝的 `python-docx`；PPTX 測試需要選裝 `python-pptx` |
+| `test_worker_lifecycle.*` | 允許建立具名管道 |
 
 ---
 
-## 8. 日常協作流程（避免互相覆蓋）
+## 6. 日常協作流程（避免互相覆蓋）
 
 **每次開工前**先同步：
 
 ```powershell
-git pull
+git switch main
+git pull --ff-only
 ```
 
 **每次做一個功能就開一個分支**：
 
 ```powershell
-git switch -c feature/我的功能
+git switch -c feature/my-feature
 # 改程式…
 git add -A
 git commit -m "feat: 加入 XXX 功能"
-git push -u origin feature/我的功能
+git push -u origin feature/my-feature
 ```
 
 然後到 GitHub 上按 **Compare & pull request** → 請組員看一下 → **Merge**。
@@ -168,43 +147,27 @@ git push -u origin feature/我的功能
 
 ```powershell
 git switch main
-git pull
+git pull --ff-only
 ```
 
-**兩個人在改同一個檔案時**：先 commit 自己的，再 `git pull --rebase`，解衝突後 `git push`。
+若 Pull Request 與 `main` 有衝突，先提交分支上的變更，再在功能分支執行 `git fetch origin` 與 `git merge origin/main`，解決衝突後推送分支。
 
 ---
 
-## 11. 專案附帶的腳本（都在 `default-workspace` 最上層）
-
-| 腳本 | 何時用 | 指令 |
-| --- | --- | --- |
-| `setup-github.ps1` | **只有第一次**：clone 組員的 repo 並把專案推上去 | `powershell -ExecutionPolicy Bypass -File ".\setup-github.ps1"` |
-| `push-now.ps1` | **平常每次改完**：看變更 → commit → push（也會顯示作者歸屬） | `powershell -ExecutionPolicy Bypass -File ".\push-now.ps1"` |
-| `push-now.ps1 -CheckOnly` | 只看狀態、不提交（確認作者與待提交檔案） | `... -CheckOnly` |
-| `fix-commit-author.ps1` | 要改「最後一筆已推上去的 commit」作者（會 force push，須全組同意） | `... -Check` 先看，再 `... -Force` |
-| `run-offlook.ps1` | 直接執行程式（可指定要跑哪個資料夾） | `... -Project offlook-team` |
-
-`setup-github.ps1` 在偵測到 `offlook-team` 已存在時會**主動停止**，避免又用本機資料夾覆蓋組員的 commit。日常請改用 `push-now.ps1`。
-
----
-
-## 12. 常見錯誤
+## 7. 常見錯誤
 
 | 訊息 | 原因與解法 |
 | --- | --- |
-| `remote origin already exists` | 已有遠端設定。改網址：`git remote set-url origin <新網址>` |
-| `rejected ... non-fast-forward` | 遠端有你本機沒有的 commit。先 `git pull --rebase` 再 `git push` |
-| `Authentication failed` | 用 PAT 當密碼，不是 GitHub 登入密碼 |
-| `fatal: not a git repository` | 你不在專案資料夾內，先 `cd` 到 `OffLook-Modified` |
-| `warning: LF will be replaced by CRLF` | 正常現象。想關掉：`git config --global core.autocrlf true` |
-| 不小心 commit 了 `__pycache__` | `git rm -r --cached __pycache__` 後重新 commit |
-| push 卡在大檔案 | 單檔超過 100 MB 會被拒。`build/`、`dist/` 不要上傳（`.gitignore` 已排除） |
+| `remote origin already exists` | 先用 `git remote -v` 確認既有遠端；若確定要改網址，執行 `git remote set-url origin "<repository-url>"`。 |
+| `rejected ... non-fast-forward` | 先 `git fetch origin` 檢查遠端的提交，整合後再推送；不要用強制推送覆蓋組員的提交。 |
+| `Authentication failed` | 使用第 1 節的 HTTPS 登入方式，並確認登入的帳號有儲存庫權限。 |
+| `fatal: not a git repository` | 先切換到 clone 下來的儲存庫資料夾。 |
+| push 卡在大檔案 | GitHub 會拒絕大於 100 MiB 的單檔。不要提交 `build/`、`dist/` 等打包產物。 |
 | 想改最後一次 commit 訊息 | `git commit --amend`（已 push 過就不要用） |
 
 ---
 
-## 10. 建議的 repo 設定（讓專案看起來完整）
+## 8. 建議的 repo 設定（讓專案看起來完整）
 
 - **About**（右上齒輪）：填一句描述，例如
   `Offline Windows file previewer with GUI and CLI — bilingual UI, mouse-wheel navigation`
@@ -214,13 +177,11 @@ git pull
 
 ---
 
-## 11. 版本號提醒
+## 9. 確認安裝版本
 
-`pyproject.toml` 目前標示 **0.3.0**，但這台電腦上已安裝的舊紀錄是 **0.1.0**。
-重新安裝一次就會一致（`py -m offlook --version` 會顯示 0.3.0）：
+`pyproject.toml` 宣告的版本是 `0.3.0`。`py -m offlook --version` 讀取 `py` 所選 Python 解譯器已安裝的套件中繼資料，不會直接讀取工作目錄中的 `pyproject.toml`。要核對本專案的版本，先在專案根目錄重新安裝，再用同一個解譯器查詢：
 
 ```powershell
-cd "C:\Users\PC\Documents\deepseek-harness\default-workspace\OffLook-Modified"
 py -m pip install --user --only-binary=:all: -e .
 py -m offlook --version
 ```

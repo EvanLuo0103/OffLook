@@ -7,10 +7,13 @@ import time
 import tkinter as tk
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from offlook.core import create_context
-from offlook.core.errors import ConfigError
+from offlook.core.errors import ConfigError, FileAccessError
 from offlook.gui import PreviewApplication
+from offlook.platforms.windows_selection import SelectionResult, _query_foreground
+from offlook.ui.i18n import tr
 
 
 class NativeListener:
@@ -119,15 +122,15 @@ class ShortcutIntegrationTests(unittest.TestCase):
         self.wait_for(lambda:len(self.app.listeners)==4)
     def test_selected_apply_drafts_and_duplicate_rejection(self):
         self.start()
-        self.app.action.set('Search files');self.app._select_action()
+        self.app.action.set(tr('action.search'));self.app._select_action()
         self.app.combo.set('Alt+Shift+S')
-        self.app.action.set('Git comparison');self.app._select_action()
+        self.app.action.set(tr('action.diff'));self.app._select_action()
         self.app.combo.set('Alt+Shift+D')
-        self.app.action.set('Search files');self.app._select_action()
+        self.app.action.set(tr('action.search'));self.app._select_action()
         self.assertEqual(self.app.combo.get(),'Alt+Shift+S')
         self.app.apply_button.invoke()
         self.wait_for(lambda:self.app.listeners['search'].combo=='Alt+Shift+S')
-        self.app.action.set('Git comparison');self.app._select_action()
+        self.app.action.set(tr('action.diff'));self.app._select_action()
         self.assertEqual(self.app.combo.get(),'Alt+Shift+D')
         self.app.combo.set('Alt+Shift+S');saved=self.path.read_bytes()
         self.app.apply_button.invoke()
@@ -165,6 +168,68 @@ class ShortcutIntegrationTests(unittest.TestCase):
         old.events.append({'type':'hotkey','combo':old.combo,'foreground_hwnd':123})
         self.app._poll_hotkeys()
         self.assertIsNone(self.app.selection_hwnd)
+    def test_compare_hotkey_opens_sorted_result_from_multiselection(self):
+        self.start()
+        root = Path(self.directory.name)
+        old, new = root / '01-old.md', root / '02-new.md'
+        old.write_text('before\n', encoding='utf-8')
+        new.write_text('after\n', encoding='utf-8')
+        listener = self.app.listeners['diff']
+        listener.events.append({'type': 'hotkey', 'combo': listener.combo, 'foreground_hwnd': 123})
+        with patch('win32gui.GetForegroundWindow', return_value=123), patch.object(self.app.runner, 'submit') as submit:
+            self.app._poll_hotkeys()
+            request = submit.call_args.args[0]
+            self.assertTrue(request.multiple and request.strict_pair)
+            response = dict(request_id=request.request_id, code=None,
+                            data=SelectionResult(None, '', (new, old)))
+            with patch.object(self.app.runner, 'poll', side_effect=[[response]] + [[]] * 200):
+                self.wait_for(lambda: self.app.diff_window is not None and self.app.diff_window.winfo_viewable())
+        self.assertIn('01-old.md / 02-new.md', self.app.diff_window.title())
+        self.assertTrue(self.app.diff_status.get() == tr('status.diff.differences'))
+
+    def test_invalid_compare_selection_leaves_preview_usable(self):
+        root = Path(self.directory.name)
+        paths = tuple(root / f'{index}.txt' for index in range(3))
+        suspended = []
+        self.app.preview = SimpleNamespace(set_render_suspended=suspended.append)
+        try:
+            with patch.object(self.app, '_start_comparison') as compare:
+                for selected, reason, hwnd in [((), '', 123), (paths[:1], '', 123),
+                                                 (paths, '', 123), ((), 'Unsupported view', 123),
+                                                 (paths[:2], '', 999)]:
+                    with self.subTest(paths=selected, reason=reason, hwnd=hwnd):
+                        self.app.selection_hwnd, self.app.selection_mode = 123, 'diff'
+                        expected = (tr('status.selection.focus_changed') if hwnd != 123 else
+                                    reason or tr('status.selection.two_files'))
+                        with patch('win32gui.GetForegroundWindow', return_value=hwnd):
+                            self.app._finish_selection(dict(code=None, data=SelectionResult(None, reason, selected)))
+                        self.assertIn(expected, self.app.diff_status.get())
+                compare.assert_not_called()
+            self.assertEqual(suspended, [False] * 5)
+        finally:
+            self.app.preview = None
+
+    def test_strict_pair_rejects_extra_folder_without_changing_batch_selection(self):
+        import pythoncom
+        from win32com.client import dynamic
+
+        items = [SimpleNamespace(IsFileSystem=True, IsFolder=folder, Path=name)
+                 for name, folder in [('first.txt', False), ('folder', True), ('second.txt', False)]]
+        selection = SimpleNamespace(Count=len(items), Item=items.__getitem__)
+        folder_view = SimpleNamespace(SelectedItems=lambda: selection)
+        view = SimpleNamespace(GetWindow=lambda: 456, GetItemObject=lambda *_: folder_view)
+        windows = SimpleNamespace(Count=1, Item=lambda _: SimpleNamespace(HWND=123))
+        application = SimpleNamespace(Windows=lambda: windows)
+        gui = SimpleNamespace(GetForegroundWindow=lambda: 123, IsWindowVisible=lambda _: True,
+                              GetAncestor=lambda *_: 123)
+        with patch.object(dynamic, 'Dispatch', side_effect=[application, folder_view] * 2), \
+             patch('offlook.platforms.windows_selection._active_view', return_value=view), \
+             patch('offlook.platforms.windows_files.validate_local_file', side_effect=Path):
+            with self.assertRaisesRegex(FileAccessError, 'exactly two local files'):
+                _query_foreground(123, pythoncom, gui, multiple=True, strict_pair=True)
+            self.assertEqual(_query_foreground(123, pythoncom, gui, multiple=True),
+                             (Path('first.txt'), Path('second.txt')))
+
     def test_shutdown_retains_tk_until_native_cleanup_finishes(self):
         self.start()
         listener=self.app.listeners['search']

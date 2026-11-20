@@ -1,10 +1,10 @@
 # OffLook
 
-An offline file previewer for Windows with GUI and CLI interfaces. All files are processed locally, without uploads or external links.
+An offline file previewer for Windows with GUI and CLI interfaces. Previews and file comparisons run locally without a network connection. The optional AI file assistant contacts the service you configure only when you run it.
 
-![Main window, Chinese interface](docs/images/main-window-en.png)
+![OffLook main window (English)](docs/images/main-window-en.png)
 
-The interface is bilingual: switch between English and Chinese with the buttons at the top right. See [MODIFICATIONS.md](MODIFICATIONS.md) for the changes in this build and [GITHUB-SETUP.md](GITHUB-SETUP.md) for the Git workflow.
+The interface is bilingual: switch between English and Chinese with the buttons at the top right. See [Getting started](docs/getting-started.md) for current instructions, [MODIFICATIONS.md](MODIFICATIONS.md) for historical notes, and [GITHUB-SETUP.md](GITHUB-SETUP.md) for the Git workflow.
 
 ## Install and launch
 
@@ -24,19 +24,19 @@ No virtual environment is used. The initial installation downloads dependencies;
 - Click **Choose file** in the main window, or select one file in File Explorer or on the desktop and press the default **Ctrl+Space** shortcut.
 - Use **Search files** to choose a local folder, search recursively by filename, and filter by document type, including Word, Excel, and PowerPoint files; double-click a result to preview it.
 - In File Explorer, select one local folder, or open a local folder with nothing selected, and press the default **Ctrl+Q** Search files shortcut. It loads the folder and focuses the filename field; click **Search** to run the search. A selected regular file or multiple items is an error.
-- Use the separate **File comparison** card and click **Compare two files**, or press the default **Ctrl+Alt+D** shortcut with exactly two selected Explorer files. The two UTF-8 text files are compared line by line; added lines are green, deleted lines are red, and modified lines are amber.
-- Select one or more files in File Explorer and press the default **Alt+C** conversion shortcut to open the conversion wheel, then choose a local operation. Images convert between PNG/JPEG/BMP/GIF/TIFF/WebP/ICO and to PDF; PDFs convert to images; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Office documents support PDF, TXT, CSV, or image output where available; legacy `.doc`, `.xls`, and `.ppt` files require LibreOffice for PDF conversion. HTML files can convert to PDF or TXT, and ZIP archives can be extracted locally. The **Quality** selector offers `auto` (use LibreOffice when available), `text` (text-only), and `office` (require LibreOffice). You can also click **Choose files to convert**.
-- Use the **Filter files** card to browse a folder and check any combination of formats; **Apply filter** lists every matching file and double-clicking one previews it.
-- The **AI file assistant** card is an opt-in port for your own AI. Enter an OpenAI-compatible base URL (e.g. DeepSeek), model, and API key, then describe a file task in plain language; the assistant can call OffLook's local list/filter/move/copy/organize tools to archive and organize files.
+- In **File comparison**, click **Compare two files** and set **Old file** and **New file** in the same window, even if they are in different folders. Or select exactly two local files in File Explorer or on the desktop and press **Ctrl+Alt+D** (configurable). The shortcut sorts the paths to set the initial order; **Swap files** reverses it. **Split** and **Unified** views show removals in red (`-`), additions in green (`+`), and highlight changed text within paired lines. No Git installation, repository, or GitHub account is required.
+- Choose one or more files with **Choose files to convert**, or select files in File Explorer and press the default **Alt+C** shortcut. In **Convert to**, choose an output from the dropdown and click **Convert** or press Enter. **Cancel**, Esc, or X dismisses the dialog. Options depend on the selection and **Quality** setting; see [conversion formats and requirements](docs/getting-started.md#6-convert-filter-and-use-ai).
+- In **Filter files**, choose a folder and check the formats you want. **Apply filter** lists files recursively that match any checked category; if none are checked, no type filter applies. Double-click a result to preview it.
+- The optional **AI file assistant** can list, filter, move, copy, and organize local files. Saving settings does not contact the service. Clicking **Run with AI** sends the instruction to the configured service and may send tool results such as paths, filenames, and sizes. The API key is saved in plaintext in the local JSON configuration.
 - To test the configured Search files key separately, run `py -m offlook diagnose-search-shortcut`, or `py -m offlook --config '<path>' diagnose-search-shortcut` for a custom config. The main app and other instances must release that key first. The diagnostic creates no GUI, tests the saved key even if the shared switch is off, and does not change settings; Ctrl+C exits successfully.
 - In **Shortcut settings**, choose **Preview**, **Search files**, **Compare files**, or **Convert files**. **Record shortcut** and **Reset default** change only that action's draft; **Apply** saves only the selected key. Switching actions preserves separate drafts; Esc cancels recording. The previous active key is kept if registration or saving fails.
 - **Enable global shortcuts** applies immediately to all four actions, separately from Apply. All saved combinations must differ, even when disabled. An occupied key makes only that action unavailable; release it and Apply again or choose another key. The cards and Help show active keys and any configured/active mismatch. Manual feature controls still work with global shortcuts disabled.
 - Click **Add to PATH** and reopen PowerShell as instructed to use `offlook preview '.\README.md'`.
-- Scroll with the mouse wheel anywhere in the main window or in a preview window — including over buttons, labels, the file path field, and the Quality selector — without aiming at the scrollbar. Lists and text areas keep their own scrolling while they have hidden content.
-- Close a preview with Esc or Space, navigate PDF pages, or keep the current preview on top. Images and PDFs refresh at higher resolution when the window grows.
-- Unsupported or disabled formats show a type icon, size, full location, timestamps, and other metadata, not binary contents.
-- The main window's X button hides it to the system tray; double-click the tray icon to reopen it. **Exit** closes the application completely. You can also enable startup at sign-in.
-- **Help** or F1 opens the built-in guide. See [Getting started](docs/getting-started.md) for full instructions and [API](docs/api.md) for integration interfaces.
+- Scroll with the mouse wheel over buttons, labels, and the file path field without aiming at the scrollbar. Lists and text areas keep their own scrolling while they have hidden content. The **Quality** dropdown keeps its native wheel behavior and can change the selected value.
+- Close a preview with Esc or Space, navigate PDF pages, or keep the current preview on top. Images and PDFs refresh at higher resolution when the window grows. **Fit** does not enlarge small source images; manual zoom is separate.
+- Unsupported or disabled formats show metadata such as type, size, path, and timestamps rather than binary contents. DOCX previews show metadata even though DOCX text can be compared.
+- The main window's X button hides it only if the system tray is available. Double-click the tray icon to reopen it, or use **Exit** to close OffLook completely. You can also enable startup at sign-in.
+- **Help** or F1 opens the built-in guide. Reopen Help after switching languages. See [Getting started](docs/getting-started.md) for full instructions and [API](docs/api.md) for integration interfaces.
 
 ```powershell
 py -m offlook preview '.\README.md'
@@ -45,8 +45,10 @@ py -m offlook --background
 
 ## Supported formats and limits
 
-Supports text, Markdown, code, CSV, common images, and static PDFs. Markdown uses lightweight formatting, images show only the first frame, and password-protected PDFs are not supported. Defaults are 10 MiB and a 5-second timeout: text is truncated, while oversized media shows metadata only. Output is limited to 4,096 physical pixels per edge and 8,388,608 pixels total; small source images are not enlarged.
+Previews support text, Markdown, code, CSV, common images, and static PDFs. Markdown uses lightweight formatting, images show only the first frame, and password-protected PDFs are not supported. Defaults are 10 MiB and a 5-second timeout: oversized media shows metadata only, and text may be truncated. Empty text may show **Empty file**. Raster output is limited to 4,096 physical pixels per edge and 8,388,608 pixels total.
 
-Only local regular files are accepted for previews and comparisons; Search files accepts local folders. Network paths, reparse points, and cloud-recall paths are rejected at the shortcut selection boundary. OffLook does not execute code or CSV formulas or invoke third-party thumbnail handlers. The operating system, synchronization software, and other external components are outside its control, so absolute prevention of data leakage cannot be guaranteed. Conversion runs locally with Pillow/pypdfium2 (and optional LibreOffice); the optional AI assistant is the only network feature and makes requests solely to the endpoint you configure.
+Comparison supports plain text (UTF-8 or Unicode with a byte-order mark), including TXT, Markdown, RST, CSV, and source code, as well as Word `.docx` body paragraphs and table text. You can compare across formats. Markdown is compared as source, and Word layout is not compared. The default limits are 2,000,000 bytes and 20,000 lines per file; over-limit inputs are rejected, not truncated.
+
+Previews and comparisons accept local regular files. At the shortcut selection boundary, network paths, reparse points, and cloud-recall paths are rejected. Search and filtering skip symbolic links and inaccessible subfolders. OffLook does not execute code or CSV formulas as part of previewing and does not invoke third-party thumbnail handlers. Conversion runs locally. The optional AI assistant is the only built-in network feature; the operating system, synchronization software, and other external components are outside OffLook's control.
 
 requirements.txt is the single source of runtime dependencies; pyproject.toml defines packaging and entry points. OffLook uses the [MIT license](LICENSE); dependencies retain their respective licenses.

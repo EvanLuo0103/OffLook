@@ -82,7 +82,7 @@ def _execute_request(request: object, renderers: dict[FileKind, type[Renderer]])
     provider = ExplorerSelectionProvider()
     if request.multiple:
         paths = provider.get_selected_files(
-            request.foreground_hwnd, allow_folder=request.allow_folder
+            request.foreground_hwnd, allow_folder=request.allow_folder, strict_pair=request.strict_pair,
         )
         reason = "" if paths is not None else "The foreground is not a supported Shell view or has changed"
         return SelectionResult(None, reason, tuple(paths) if paths else ())

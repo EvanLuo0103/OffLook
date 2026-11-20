@@ -1,12 +1,18 @@
 # Feature Pack v2 — Conversion, Filtering, and AI Assistant
 
+> **Historical snapshot — Feature Pack v2.** This milestone record describes
+> behavior at the time. See the current [Getting started guide](getting-started.md)
+> and [API reference](api.md). OffLook now compares two local files without Git
+> or a repository, and conversion uses a dialog with a format dropdown instead
+> of a radial wheel.
+
 This document records the second development milestone added on top of the
 existing OffLook local previewer. The baseline already contained the core
 preview/publish flow (milestone 1) and multi-file search, Git diff, and tests
-(milestone 3). This milestone adds the three "group 2" features: local file
-conversion, multi-format filtering, and an opt-in AI assistant port.
+(milestone 3). The second milestone added the three "group 2" features: local
+file conversion, multi-format filtering, and an opt-in AI assistant port.
 
-All new features respect the existing architecture conventions:
+At the time, the new features followed these architecture conventions:
 
 - GUI work stays on the Tk main thread; conversion, filtering, and AI run in
   background threads.

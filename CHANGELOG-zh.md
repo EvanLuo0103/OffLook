@@ -1,5 +1,9 @@
 # 修改說明（OffLook-Modified）
 
+> **歷史快照：記錄 `0.1.0` 至 `0.3.0` 開發時的變更與測試結果，不是現行操作指南。**
+> 請參閱目前的[入門指南](docs/getting-started.md)與 [API 參考](docs/api.md)。
+> 現行的檔案比對可直接比對兩個本機檔案，不需要 Git 或儲存庫；檔案轉換使用有格式下拉選單的對話框，不再使用格式輪。
+
 - **專案**：OffLook（Windows 離線檔案預覽器，Python + Tkinter）
 - **版本**：`0.1.0` → **`0.3.0`**
 - **原始碼位置**：`src/offlook/`
@@ -135,7 +139,7 @@ Cannot identify a unique offlook.exe in the installation records.
 
 ---
 
-## 八、測試結果
+## 八、當時的測試結果
 
 **專案內建測試（109 個，`unittest`）**
 在正常 Windows 環境下應全數通過。開發機（受限制的沙箱）實測為 **84 通過 / 22 因環境限制無法執行 / 3 自動跳過**，22 個全是環境因素：
@@ -159,7 +163,7 @@ Cannot identify a unique offlook.exe in the installation records.
 
 ---
 
-## 九、組員需要注意的行為變更
+## 九、當時的行為變更
 
 1. **設定檔多了 `language` 欄位**：舊的 `config.json` 沒有這個欄位也能載入（預設 `en`），不會壞。
 2. **`--version` 會顯示 0.3.0**：需重新安裝才生效（`py -m pip install --user --only-binary=:all: -e .`）。
@@ -189,7 +193,7 @@ Cannot identify a unique offlook.exe in the installation records.
 | `_zoom` | 100% 起算，範圍 25%–400%，每次 ±25% |
 | `+` / `−` 按鈕 | 調整倍率，並以 `bounded_viewport` 重新向 worker 要求更高解析度的圖（不是把舊圖放大） |
 | `Fit` / `適應` | 回到 100%（隨介面語言翻譯） |
-| 圖片畫布 | 縮放後超出視窗時可**用滾輪或捲軸**平移（與第十一節的滾輪功能共用 `_wheel_target`） |
+| 圖片畫布 | 縮放後超出視窗時可**用滾輪或捲軸**平移（與第二節的滾輪功能共用 `_wheel_target`） |
 | 頁面導覽列 | 顯示時機調整為「PDF 或有圖片」；純文字／表格時隱藏縮放控制 |
 
 **影響檔案**：`src/offlook/preview/window.py`、`src/offlook/ui/i18n.py`
@@ -197,5 +201,5 @@ Cannot identify a unique offlook.exe in the installation records.
 **驗證**：11 項檢查全數通過（控制項顯示、倍率、放大後尺寸、上限、畫布可捲動、滾輪可捲動縮放後的圖片、Fit 還原、純文字時隱藏控制項）。
 
 **教訓（流程面）**
-以 ZIP 下載的程式碼**沒有 Git 歷史**，直接覆蓋會悄悄刪掉組員的 commit。正確做法是：`git clone` 之後再改，或至少先把 clone 的變更合併回自己的版本再 push。本專案的 `setup-github.ps1` 已改為**偵測到 clone 已存在就停止**，避免再次覆蓋。
+以 ZIP 下載的程式碼**沒有 Git 歷史**。先 `git clone`，再在 clone 裡編輯；不要用 ZIP 快照覆蓋 clone，以免移除組員的變更。
 

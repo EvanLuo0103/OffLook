@@ -20,17 +20,17 @@ The search includes subfolders but does not follow links or network folders. Dou
 In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook loads the folder and focuses the filename field; it does not run a search until you click "Search". A selected regular file or multiple items is an error, not a request to search the parent folder.
 
 File comparison
-The separate "File comparison" card contains "Compare two files". Choose the first and second UTF-8 text files, or select exactly two local files in File Explorer and press the configured Compare files shortcut (default: Ctrl+Alt+D). The window compares the files line by line and highlights added green, deleted red, and modified amber lines.
-Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
+In the "File comparison" card, click "Compare two files" and choose Old file and New file in the same window. They may be in different folders. In File Explorer or on the desktop, select exactly two local files and press Compare files (default: Ctrl+Alt+D). The shortcut sorts the paths to set the initial order; Swap files reverses it. No Git installation or repository is needed.
+Compare plain text (such as TXT, Markdown, RST, CSV or code) and Word (.docx) body paragraphs and tables, even across formats. Each file is limited to 2,000,000 bytes and 20,000 lines; Word layout is not compared. Split and Unified show green + additions, red - deletions, and stronger highlighting within edited lines. DOCX preview still shows metadata only.
 
 Converting files
-Select one or more files in File Explorer and press the convert shortcut (default Alt+C) to open a format wheel, then choose a target format to convert locally. You can also click "Choose files to convert" in the main window. Images convert between PNG, JPEG, BMP, GIF, TIFF, WebP, and ICO, and to PDF; PDFs convert to image formats; text, Markdown, code, and CSV convert to PDF, TXT, or Word. Word, Excel, and PowerPoint convert to PDF/TXT/CSV/images using the optional python-docx, openpyxl, and python-pptx packages. The Quality selector chooses fidelity: auto keeps images/layout when LibreOffice is installed, text is text-only, and office requires LibreOffice.
+Select files in File Explorer and press the configured Convert files shortcut (default Alt+C), or click "Choose files to convert". Choose a target in the "Convert to" dropdown, then click Convert or press Enter. Cancel, Esc or X dismisses it. Conversion is local; available backends depend on the input and target. For DOCX to PDF, auto uses Microsoft Word with optional docx2pdf, text uses paragraph text, and office uses LibreOffice.
 
 Filtering files
-In "Filter files", choose a local folder and check any combination of formats, then click "Apply filter" to list matching files recursively. Double-click a result to preview it.
+In "Filter files", choose a local folder and select formats, then click "Apply filter" to list matches in accessible folders. No selected formats means all types. Double-click a result to preview it.
 
 AI file assistant
-The "AI file assistant" card is an opt-in port: enter your own OpenAI-compatible endpoint (for example DeepSeek's base URL), model, and API key, then describe a file task in plain language. The assistant may call OffLook's local list, filter, move, copy, and organize tools to act on your files. No network request is made unless you run the assistant with an API key.
+Save an OpenAI-compatible endpoint, model and API key to use the assistant. It does not contact the provider automatically. Running "Run with AI" sends your instruction and can send tool results with local paths, filenames and sizes to the configured service. The tools can move or copy local files; the API key is stored in plain text in the local JSON configuration.
 
 Switching the interface language
 Use the "中文 / English" buttons at the top-right of the main window. The choice is saved to the local configuration file and applied immediately, including to this Help window the next time it opens.
@@ -46,7 +46,7 @@ You can still choose files, search, and compare manually when global shortcuts a
 
 Preview controls
 PDFs have Previous / Next buttons; page numbers appear only for rendered PDF pages. "Always on top" applies only to the current preview.
-The mouse wheel scrolls the main window and each preview window from anywhere inside them, including over buttons, labels, the file path field, and the Quality selector. Result lists, text boxes, and tables keep their own scrolling while they still have hidden content, and otherwise the page keeps scrolling. The scrollbar on the right still works.
+The mouse wheel scrolls the main and preview windows over most controls. Dropdowns such as Quality keep their native wheel behavior, and result lists and text boxes scroll themselves while content remains.
 When you enlarge the window or move it to a higher-DPI display, images and PDFs are rendered again with more physical pixels, rather than repeatedly enlarging the old image.
 
 Shortcut settings and conflicts
@@ -61,11 +61,11 @@ Add to PATH
 Existing terminals may still use the old environment. You can also run `py -m offlook`.
 
 System tray, startup, and exit
-Closing the main window hides it to the system tray, where you can restore it or exit. Start at sign-in must be explicitly enabled in the main window. Exiting stops background listening and pending work.
+Closing the main window hides it only when the system tray is available. Restore it from the tray or choose Exit to stop background listening. Start at sign-in must be explicitly enabled.
 
 File limits and offline operation
-OffLook reads only local files. It makes no network connections, executes no file content, and uses no Windows or third-party thumbnail providers.
-Safety limits apply to file size, text length, image pixels, and preview time. Unknown formats, files over these limits, and empty files show a file information card, not a hex dump.
+Preview and file comparison do not contact the network or execute file contents. They do not use third-party thumbnail providers.
+Oversized images and PDFs show metadata instead of decoded content. Long text may be truncated, and empty text shows an Empty file notice. Fit does not enlarge small source images automatically; manual zoom is separate.
 Content previews support images, PDFs, text, Markdown, code, and CSV. Word, Excel, PowerPoint, OpenDocument, unknown, and unsupported files show the information card with the full path, file attributes, and human-readable size.
 """
 
@@ -80,17 +80,17 @@ _HELP_ZH = """選擇要預覽的檔案
 在檔案總管中選取一個本機資料夾（或開啟資料夾且未選取任何項目），再按「檔案搜尋」快捷鍵（預設 Ctrl+Q）。OffLook 會載入該資料夾並把游標放到檔名欄，在你按「搜尋」之前不會真的開始搜尋。若選取的是單一檔案或多個項目，會視為錯誤，不會改成搜尋上層資料夾。
 
 檔案比對
-「檔案比對」卡片內有「比對兩個檔案」。可依序選擇兩個 UTF-8 文字檔，或在檔案總管選取兩個本機檔案後按「檔案比對」快捷鍵（預設 Ctrl+Alt+D）。比對視窗會逐行顯示差異，並以綠色標示新增、紅色標示刪除、琥珀色標示修改。
-Office 與 OpenDocument 檔案會被辨識（供搜尋分類用），但 OffLook 只顯示中介資料，不會解析內容。
+在「檔案比對」卡片按「比對兩個檔案」，在同一視窗選好舊檔案和新檔案；兩份檔案可位於不同資料夾。也可在檔案總管或桌面選取正好兩個本機檔案，再按檔案比對快捷鍵（預設 Ctrl+Alt+D）。快捷鍵依路徑排序，可用「交換檔案」反轉方向。不需要 Git 或儲存庫。
+支援 TXT、Markdown、RST、CSV、程式碼等純文字，以及 Word（.docx）正文段落和表格，可跨格式比對。每份檔案上限 2,000,000 位元組和 20,000 行；不比較 Word 版面。「並排」和「統一」視圖以綠色 + 標示新增、紅色 - 標示刪除，並加深顯示行內改動。DOCX 預覽仍僅顯示中繼資料。
 
 轉換檔案
-在檔案總管選取一或多個檔案，按轉換快捷鍵（預設 Alt+C）開啟格式輪，選擇目標格式即可在本機轉換。也可以在主視窗按「選擇要轉換的檔案」。圖片可在 PNG、JPEG、BMP、GIF、TIFF、WebP、ICO 之間互轉，並可轉為 PDF；PDF 可轉為圖片；文字、Markdown、程式碼、CSV 可轉為 PDF、TXT 或 Word。Word、Excel、PowerPoint 透過選用的 python-docx、openpyxl、python-pptx 轉為 PDF／TXT／CSV／圖片。「品質」選項決定保真度：auto 在已安裝 LibreOffice 時保留圖片與版面，text 只取文字，office 則必須有 LibreOffice。
+在檔案總管選取檔案並按設定的轉換快捷鍵（預設 Alt+C），或在主視窗按「選擇要轉換的檔案」。在「轉換格式」對話框選擇目標後按 Convert（或 Enter），按 Cancel、Esc 或 X 可取消。轉換在本機進行，後端視來源和目標而定。DOCX 轉 PDF 時，auto 使用 Microsoft Word 與選用的 docx2pdf，text 只取段落文字，office 使用 LibreOffice。
 
 篩選檔案
-在「檔案篩選」中選擇本機資料夾，勾選任意格式組合，按「套用篩選」就會遞迴列出符合的檔案。在結果上雙擊即可預覽。
+在「檔案篩選」選擇資料夾與格式，再按「套用篩選」以列出可存取資料夾內的相符檔案。不勾選格式表示不限類型。在結果上雙擊即可預覽。
 
 AI 檔案助手
-「AI 檔案助手」卡片是選用功能：填入你自己的 OpenAI 相容端點（例如 DeepSeek 的服務位址）、模型與 API 金鑰，然後用自然語言描述要處理的檔案工作。助手可能會呼叫 OffLook 本機的清單、篩選、移動、複製、分類工具來處理你的檔案。除非你填入 API 金鑰並執行助手，否則不會有任何網路請求。
+使用助手前可儲存 OpenAI 相容端點、模型及 API 金鑰。程式不會自動聯絡服務；按「用 AI 執行」會傳送指令，也可能將含有本機路徑、名稱及大小的工具結果傳給設定的服務。工具可移動或複製本機檔案，金鑰以明文儲存在本機 JSON。
 
 切換介面語言
 使用主視窗右上角的「中文 / English」按鈕。選擇會存到本機設定檔並立即生效；下次開啟本說明視窗時也會使用該語言。
@@ -98,7 +98,7 @@ AI 檔案助手
 目前的通用快捷鍵
 預覽：{preview}
 檔案搜尋：{search}
-Git 比對：{diff}
+檔案比對：{diff}
 檔案轉換：{convert}
 這份摘要會在快捷鍵註冊狀態變更時更新。若替換失敗，實際生效的按鍵可能與設定的不同。
 按 Esc 或單獨的 Space 會關閉預覽；Space 加上 Ctrl、Alt 或 Shift 則不會。
@@ -106,14 +106,14 @@ Git 比對：{diff}
 
 預覽操作
 PDF 有「上一頁」「下一頁」按鈕；頁碼只在有實際繪製的 PDF 頁面顯示。「置頂顯示」只作用於目前這個預覽視窗。
-滑鼠滾輪可以在主視窗與各預覽視窗內的任何位置捲動，包括按鈕、標籤、檔案路徑欄與「品質」選單上方。結果清單、文字框與表格仍有隱藏內容時會優先捲動自己，捲到底之後才改為捲動頁面。右側的滾軸一樣可用。
+主視窗與預覽視窗大多數控制項上都可用滾輪捲動；「品質」等下拉選單保留原生滾輪行為，結果清單與文字框則優先捲動自己的內容。
 放大視窗或把視窗移到更高 DPI 的螢幕時，圖片與 PDF 會用更多實際像素重新繪製，而不是把舊圖放大。
 
 快捷鍵設定與衝突
-在動作選單選擇「預覽」「檔案搜尋」「Git 比對」或「檔案轉換」。每個動作各自保留草稿。按「錄製快捷鍵」，在 OffLook 視窗內按下組合鍵，再按「套用」只儲存目前選取的動作。按 Esc 取消錄製；切換動作也會取消未完成的錄製。「還原預設」只會改動目前草稿，同樣需要按「套用」。
+在動作選單選擇「預覽」「檔案搜尋」「檔案比對」或「檔案轉換」。每個動作各自保留草稿。按「錄製快捷鍵」，在 OffLook 視窗內按下組合鍵，再按「套用」只儲存目前選取的動作。按 Esc 取消錄製；切換動作也會取消未完成的錄製。「還原預設」只會改動目前草稿，同樣需要按「套用」。
 「啟用全域快捷鍵」會立即套用到全部四個動作，與「套用」無關。停用會釋放所有按鍵；啟用會逐一嘗試各動作已儲存的按鍵。被其他程式佔用的按鍵會顯示為「無法使用」，其他動作仍可正常運作。
 四個動作的組合必須互不相同，即使在全域快捷鍵停用時也一樣。若註冊或儲存失敗，原本生效的按鍵會保留，草稿也會留著讓你修正或重試。請先在另一個程式釋放該按鍵再按「套用」，或改用其他組合。從外部變更設定檔的按鍵不會自動交換已註冊的按鍵：請先用一個未被佔用的組合釋放舊鍵。
-錄製過程不會啟用快捷鍵，也不會執行任何功能；即使你在 OffLook 主視窗上按下已註冊的「檔案搜尋」或「Git 比對」鍵也一樣。
+錄製過程不會執行功能；即使你在 OffLook 主視窗上按下已註冊的「檔案搜尋」或「檔案比對」鍵也一樣。
 不支援 Win 鍵組合、F12、單一按鍵，以及 Alt+F4 這類保留組合。請選擇含 Ctrl 或 Alt（可再加 Shift）的組合。
 
 加入 PATH
@@ -121,11 +121,11 @@ PDF 有「上一頁」「下一頁」按鈕；頁碼只在有實際繪製的 PDF
 已開啟的終端機可能仍在用舊的環境變數。你也可以直接執行 `py -m offlook`。
 
 系統匣、開機啟動與結束
-關閉主視窗只是隱藏到系統匣，可從系統匣還原或結束。登入時自動啟動必須在主視窗明確啟用。結束程式會停止背景監聽與未完成的工作。
+系統匣可用時，關閉主視窗會隱藏至系統匣，可從該處還原或選擇結束。登入時自動啟動須明確啟用。結束程式會停止背景監聽。
 
 檔案上限與離線運作
-OffLook 只讀取本機檔案，不建立網路連線、不執行檔案內容，也不使用 Windows 或第三方的縮圖處理程式。
-檔案大小、文字長度、圖片像素與預覽時間都有安全上限。未知格式、超過上限的檔案與空檔案會顯示檔案資訊卡，而不是十六進位內容。
+預覽和檔案比對不會連線，也不會執行檔案內容或使用外部縮圖處理程式。
+超過預覽限制的圖片與 PDF 只顯示中繼資料，文字過長可能截斷，空白文字檔會顯示空檔案提示。「適應」不會自動放大小圖；手動縮放另計。
 可預覽的內容包括圖片、PDF、文字、Markdown、程式碼與 CSV。Word、Excel、PowerPoint、OpenDocument、未知與不支援的格式會顯示資訊卡，包含完整路徑、檔案屬性與易讀的大小。
 """
 

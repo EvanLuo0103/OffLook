@@ -1,27 +1,10 @@
 # OffLook-Modified — changes from the original OffLook-main
 
-This folder is the **modified project** (`offlook` version **0.3.0**). The original,
-unmodified copy stays in `../OffLook-main` for comparison.
-
-## How to run this version
-
-It must be installed from *this* folder, because the editable install points at one
-source tree only:
-
-```powershell
-cd "C:\Users\PC\Documents\deepseek-harness\default-workspace\OffLook-Modified"
-py -m pip install --user --only-binary=:all: -e .
-py -m offlook
-```
-
-Reinstalling replaces the previous editable install of `OffLook-main`; running
-`pip install -e .` again in `OffLook-main` switches back. Without reinstalling, use
-
-```powershell
-powershell -ExecutionPolicy Bypass -File "..\run-offlook.ps1" -Project OffLook-Modified
-```
-
-which puts this folder's `src` on `PYTHONPATH` first.
+> **Historical snapshot — OffLook 0.3.0 development.** This record describes the
+> changes and verification at the time, not current behavior. See the current
+> [Getting started guide](docs/getting-started.md) and [API reference](docs/api.md).
+> OffLook now compares two local files without Git or a repository, and conversion
+> uses a dialog with a format dropdown instead of a radial wheel.
 
 ## 1. Mouse wheel scrolling, everywhere in both windows
 
@@ -125,9 +108,9 @@ The feature is now merged into our version and integrated with the wheel work:
 **Files**: `src/offlook/preview/window.py`, `src/offlook/ui/i18n.py`
 **Verification**: 11 checks (controls visible, percentage, larger raster, cap, scrollregion, wheel panning, Fit reset, hidden for text).
 
-**Process lesson**: a ZIP download carries no Git history, so copying it over a
-clone deletes teammates' commits. `setup-github.ps1` now stops when the clone
-already exists, so this cannot happen again silently.
+**Process lesson**: a ZIP download contains no Git history. Clone the repository
+first and edit in the clone; do not copy a ZIP snapshot over it, since that can
+remove teammates' changes.
 
 ## 7. Documentation updated
 
@@ -135,7 +118,7 @@ already exists, so this cannot happen again silently.
 - `docs/api.md` — `language` configuration field.
 - `pyproject.toml` — version `0.3.0`, description marks the modified build.
 
-## Verification performed
+## Verification performed at the time
 
 - `python -m compileall` on `src`: clean.
 - Language switching test: English window → Chinese window → back, 69 labels inspected
@@ -144,8 +127,9 @@ already exists, so this cannot happen again silently.
   message is *not* overwritten by the retranslation pass.
 - Real mouse-wheel test (12 cases, real `mouse_event` with the pointer verified through
   `winfo_containing`) — see section 1.
-- Visual check with screenshots: `docs/images/main-window-en.png`,
-  `docs/images/main-window-zh.png`, `docs/images/help-zh.png`,
-  `docs/images/preview-zh.png`.
+- Visual checks used four screenshots. The [English main window](docs/images/main-window-en.png),
+  [Chinese main window](docs/images/main-window-zh.png), and [Chinese Help](docs/images/help-zh.png)
+  paths now point to current screenshots. The [Chinese metadata preview](docs/images/preview-zh.png)
+  is retained as a historical screenshot.
 - Application start-up retested after every change; the process stays alive and the
   window renders.

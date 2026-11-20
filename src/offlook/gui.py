@@ -103,6 +103,7 @@ class PreviewApplication:
         self._search_results = queue.Queue()
         self._diff_results = queue.Queue()
         self._diff_thread = None
+        self._comparison_picker_open = False
         self._filter_thread = None
         self._filter_results = queue.Queue()
         self._convert_thread = None
@@ -419,24 +420,31 @@ class PreviewApplication:
             self.open(path)
 
     def _choose_for_diff(self):
-        """Choose two UTF-8 text files to compare."""
-        self.diff_status.set(tr('status.diff.choosing'))
-        old_path = filedialog.askopenfilename(parent=self.root)
-        if not old_path:
-            self.diff_status.set(tr('status.diff.cancelled'))
+        """Choose both paths in one window, then start the comparison."""
+        if self.closing or self._comparison_picker_open or (self._diff_thread and self._diff_thread.is_alive()):
             return
-        new_path = filedialog.askopenfilename(parent=self.root)
-        if new_path:
-            self.diff_status.set(tr('status.diff.selected', name=f"{Path(old_path).name} / {Path(new_path).name}"))
-            self._start_comparison(old_path, new_path)
-        else:
+        from offlook.ui.compare_picker import pick_comparison_files
+        if self.selection_mode == 'diff':
+            self._cancel_selection()
+        self.diff_status.set(tr('status.diff.choosing'))
+        self._comparison_picker_open = True
+        try:
+            paths = pick_comparison_files(self.root)
+        finally:
+            self._comparison_picker_open = False
+        if self.closing:
+            return
+        if paths is None:
             self.diff_status.set(tr('status.diff.cancelled'))
+        else:
+            self._start_comparison(*paths)
+
 
     def _start_comparison(self, old_path, new_path):
         """Run two-file comparison away from the Tk thread."""
         if self._diff_thread and self._diff_thread.is_alive():
             return
-        from offlook.core.git_diff import compare_files
+        from offlook.core import compare_files
         self.diff_status.set(tr('status.diff.running'))
         def work():
             try:
@@ -445,7 +453,7 @@ class PreviewApplication:
                 self._diff_results.put((None, str(exc)))
             except Exception as exc:
                 self._diff_results.put((None, f'File comparison failed: {type(exc).__name__}: {exc}'))
-        self._diff_thread = threading.Thread(target=work, name='OffLookGitDiff', daemon=True)
+        self._diff_thread = threading.Thread(target=work, name='OffLookFileComparison', daemon=True)
         self._diff_thread.start()
 
     def _choose_search_folder(self):
@@ -887,7 +895,7 @@ class PreviewApplication:
         self._observed_config = self.context.config.current
 
     def _apply_hotkey(self):
-        """Validate all three bindings before registration or persistence."""
+        """Validate all four bindings before registration or persistence."""
         self._cancel_recording()
         action = self._selected_action
         field, label_key = self.SHORTCUT_ACTIONS[action]
@@ -1216,8 +1224,9 @@ class PreviewApplication:
         self._begin_selection('search', hwnd)
 
     def _diff_hotkey(self, hwnd):
-        """Resolve two selected Explorer files for comparison."""
-        self._begin_selection('diff', hwnd)
+        """Resolve two files from the foreground Shell view."""
+        if not self._comparison_picker_open:
+            self._begin_selection('diff', hwnd)
 
     def _begin_selection(self, action: str, hwnd: int) -> None:
         """Suspend renders before the latest captured foreground selection request."""
@@ -1230,7 +1239,8 @@ class PreviewApplication:
         self.selection_hwnd, self.selection_mode = hwnd, action
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current,
                                             allow_folder=action == 'search',
-                                            multiple=action in ('convert', 'diff')))
+                                            multiple=action in ('convert', 'diff'),
+                                            strict_pair=action == 'diff'))
 
     def _cancel_selection(self, *, resume=True):
         if self.selection_hwnd is not None or self.selection_mode is not None:
@@ -1267,6 +1277,13 @@ class PreviewApplication:
                 else:
                     self._selection_feedback(
                         action, result['data'].reason or tr('status.selection.no_files'))
+            elif action == 'diff':
+                paths, reason = result['data'].paths, result['data'].reason
+                if len(paths) != 2:
+                    self._selection_feedback(action, (reason if not paths else '')
+                                             or tr('status.selection.two_files'))
+                else:
+                    self._start_comparison(*sorted(paths, key=lambda p: (str(p).casefold(), str(p))))
             elif result['data'].path is None:
                 self._selection_feedback(action, result['data'].reason)
             elif action == 'search':
@@ -1274,12 +1291,6 @@ class PreviewApplication:
                 self.search_status.set(tr('status.search.explorer'))
                 self._show()
                 self.root.after_idle(self._focus_search)
-            elif action == 'diff':
-                if len(result['data'].paths) != 2:
-                    self._selection_feedback(
-                        action, tr('status.selection.two_files'))
-                else:
-                    self._start_comparison(*result['data'].paths)
             else:
                 self.open(result['data'].path)
         finally:
@@ -1354,7 +1365,8 @@ class PreviewApplication:
                 from offlook.ui.diff import show_diff
                 if self.diff_window is not None and self.diff_window.winfo_exists():
                     self.diff_window.destroy()
-                self.diff_window = show_diff(self.root, comparison)
+                self.diff_window = show_diff(self.root, comparison, on_swap=lambda: self._start_comparison(
+                    comparison.new_path, comparison.old_path))
                 self.diff_status.set(
                     tr('status.diff.differences') if comparison.changed else tr('status.diff.same')
                 )
