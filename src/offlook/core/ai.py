@@ -6,10 +6,10 @@ OpenAI-compatible ``/chat/completions`` endpoint (DeepSeek, OpenAI, and many
 self-hosted servers use this shape). No other telemetry is sent.
 
 The assistant is a thin loop: the model receives the user's instruction plus
-JSON tool definitions, and it may ask OffLook to run safe local file operations
-(list/filter/move/copy/organize). Tool arguments are validated and executed
-locally, results are returned to the model, and the final answer is shown to
-the user. Providers are plain Python and can be subclassed for non-OpenAI APIs.
+JSON tool definitions. The default tools are read-only unless the caller supplies
+a callback to review exact local file changes before execution. Tool results are
+returned to the model, and the final answer is shown to the user.
+Providers are plain Python and can be subclassed for non-OpenAI APIs.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from urllib.error import HTTPError
 
 from .errors import AiError, FileAccessError
-from .file_ops import copy_files, list_folder, move_files, organize_by_kind
+from .file_ops import AiWritePlan, execute_ai_write, list_folder, prepare_ai_write
 from .files import FileKind
 from .search import filter_files
 
@@ -118,11 +118,16 @@ class OpenAiCompatibleProvider(AiProvider):
             )
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
-        except AiError:
-            raise
+            return _parse_completion(body)
+        except HTTPError as exc:
+            status = exc.code
+            error = "AI request failed (HTTPError)."
+            if type(status) is int:
+                error = f"AI request failed (HTTP {status})."
         except Exception as exc:
-            raise AiError(f"AI request failed: {type(exc).__name__}: {exc}") from exc
-        return _parse_completion(body)
+            error = f"AI request failed ({type(exc).__name__})."
+        # Do not chain exceptions that can contain URLs, request data, or credentials.
+        raise AiError(error)
 
 
 def _clean_base_url(base_url: str) -> str:
@@ -216,6 +221,8 @@ class AiToolRegistry:
             raise AiError(f"Tool not registered: {name}") from exc
         try:
             return callback(dict(arguments))
+        except AiError:
+            raise
         except Exception as exc:
             raise AiError(f"Tool execution failed: {name} ({type(exc).__name__})") from exc
 
@@ -240,7 +247,7 @@ def _serialize_paths(paths: tuple[Path, ...]) -> list[dict[str, object]]:
     return output
 
 
-def _kind_name(value: object) -> str:
+def _kind_name(value: object) -> FileKind:
     """Map a model-supplied kind string to a FileKind, tolerating labels."""
     if not isinstance(value, str):
         raise AiError("A document type must be a string such as 'pdf' or 'image'")
@@ -254,12 +261,12 @@ def _kind_name(value: object) -> str:
     token = aliases.get(token, token)
     try:
         return FileKind(token)
-    except ValueError as exc:
-        raise AiError(f"Unsupported document type: {value}") from exc
+    except ValueError:
+        raise AiError("Unsupported document type") from None
 
 
-def default_tools() -> AiToolRegistry:
-    """Build the built-in file-management tools exposed to the AI assistant."""
+def default_tools(*, approve_write: Callable[[AiWritePlan], bool] | None = None) -> AiToolRegistry:
+    """Build read-only tools, adding writes only with a local approval callback."""
     registry = AiToolRegistry()
 
     registry.register(
@@ -308,17 +315,28 @@ def default_tools() -> AiToolRegistry:
         )),
     )
 
-    def _transfer_tool(operation: str):
+    if approve_write is None:
+        return registry
+    if not callable(approve_write):
+        raise AiError("File changes require a callable approval callback")
+
+    def _write_tool(tool: str) -> Callable[[dict[str, object]], object]:
         def run(args: dict[str, object]) -> dict[str, object]:
-            paths = [str(item) for item in args.get("paths") or []]
-            destination = args.get("destination")
-            if not destination:
-                raise AiError("A destination folder is required")
-            conflict = str(args.get("conflict") or "rename")
-            if operation == "move":
-                results = move_files(paths, str(destination), conflict=conflict)
-            else:
-                results = copy_files(paths, str(destination), conflict=conflict)
+            if tool == "organize_by_kind" and "kinds" in args:
+                kinds = args["kinds"]
+                if not isinstance(kinds, list) or not all(isinstance(kind, str) for kind in kinds):
+                    raise AiError("Document kinds must be a list of strings")
+                args["kinds"] = [_kind_name(kind).value for kind in kinds]
+            try:
+                plan = prepare_ai_write(tool, args)
+            except FileAccessError as exc:
+                raise AiError(str(exc)) from None
+            if any(not item.skip for item in plan.items) and approve_write(plan) is not True:
+                raise AiError("File changes were not approved; nothing was changed.")
+            try:
+                results = execute_ai_write(plan)
+            except FileAccessError as exc:
+                raise AiError(str(exc)) from None
             return {
                 "results": [
                     {"source": str(item.source), "destination": str(item.destination),
@@ -328,59 +346,37 @@ def default_tools() -> AiToolRegistry:
             }
         return run
 
-    registry.register(
-        "move_files",
-        "Move (archive) local files into a destination folder. Never overwrites by default.",
-        {
-            "type": "object",
-            "properties": {
-                "paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute source file paths."},
-                "destination": {"type": "string", "description": "Absolute destination folder."},
-                "conflict": {"type": "string", "description": "rename (default), skip, or overwrite."},
+    conflict_parameter = {"type": "string", "enum": ["rename", "skip"], "default": "rename"}
+    for tool, action in (("move_files", "move"), ("copy_files", "copy")):
+        registry.register(
+            tool,
+            f"Request approval to {action} local files into an existing destination folder.",
+            {
+                "type": "object",
+                "properties": {
+                    "paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute source file paths."},
+                    "destination": {"type": "string", "description": "Absolute destination folder."},
+                    "conflict": conflict_parameter,
+                },
+                "required": ["paths", "destination"],
             },
-            "required": ["paths", "destination"],
-        },
-        _transfer_tool("move"),
-    )
-
-    registry.register(
-        "copy_files",
-        "Copy local files into a destination folder. Never overwrites by default.",
-        {
-            "type": "object",
-            "properties": {
-                "paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute source file paths."},
-                "destination": {"type": "string", "description": "Absolute destination folder."},
-                "conflict": {"type": "string", "description": "rename (default), skip, or overwrite."},
-            },
-            "required": ["paths", "destination"],
-        },
-        _transfer_tool("copy"),
-    )
+            _write_tool(tool),
+        )
 
     registry.register(
         "organize_by_kind",
-        "Archive files under a folder into per-type subfolders (e.g. all PDFs into a 'pdf' subfolder).",
+        "Request approval to move local files into per-type subfolders under an existing destination folder.",
         {
             "type": "object",
             "properties": {
-                "folder": {"type": "string", "description": "Absolute local folder path."},
+                "folder": {"type": "string", "description": "Absolute local source folder path."},
                 "destination": {"type": "string", "description": "Absolute destination root folder."},
                 "kinds": {"type": "array", "items": {"type": "string"}, "description": "Categories like ['pdf', 'image']."},
+                "conflict": conflict_parameter,
             },
             "required": ["folder", "destination"],
         },
-        lambda args: {
-            "results": [
-                {"source": str(item.source), "destination": str(item.destination),
-                 "status": item.status, "message": item.message}
-                for item in organize_by_kind(
-                    args["folder"],
-                    str(args["destination"]),
-                    kinds=[_kind_name(item) for item in (args.get("kinds") or [])],
-                )
-            ]
-        },
+        _write_tool("organize_by_kind"),
     )
 
     return registry
@@ -391,7 +387,8 @@ _SYSTEM_PROMPT = (
     "Help the user find, filter, organize, and archive their local files. "
     "Use the provided tools to act on real files; never invent file or folder paths. "
     "Only operate on local drive-letter paths the user provided or that a tool returned. "
-    "Prefer move_files/organize_by_kind for archiving and always tell the user exactly what you did. "
+    "File changes require local approval. A denied change did not happen; do not retry it automatically. "
+    "Describe what actually happened according to the tool results. "
     "If an operation fails, report the failure instead of retrying blindly. "
     "Keep answers concise and in the language the user wrote."
 )

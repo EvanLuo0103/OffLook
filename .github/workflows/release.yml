@@ -1,0 +1,221 @@
+name: Release OffLook
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the selected release tag to TestPyPI, then PyPI
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.publish }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-2022
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - id: version
+        env:
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          $version = python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ($env:PUBLISH -eq 'true') {
+            if ($env:GITHUB_REF -ne "refs/tags/v$version") { throw 'Select the tag matching pyproject.toml.' }
+            git merge-base --is-ancestor HEAD origin/main
+            if ($LASTEXITCODE) { throw 'Release commit is not in the main branch history.' }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - run: |
+          $dist = Join-Path $env:RUNNER_TEMP python-dist
+          python -m pip install build twine
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m build --outdir $dist
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m twine check --strict "$dist/*"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m qa.release_artifacts $dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: ${{ runner.temp }}/python-dist/*
+          if-no-files-found: error
+      - run: |
+          $wheel = Join-Path $env:RUNNER_TEMP "python-dist/offlook-${{ steps.version.outputs.version }}-py3-none-any.whl"
+          python -m pip install --only-binary=:all: "$wheel[office]" PyInstaller==6.16.0
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest qa.test_conversion_preflight qa.test_ai_safety qa.test_credentials
+      - name: Build and smoke-test the Windows installer
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP inno-setup.exe
+          $compiler = Join-Path $env:RUNNER_TEMP OffLook-Inno-Setup
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_4_3/innosetup-6.4.3.exe' -OutFile $setup
+          if ((Get-FileHash -LiteralPath $setup).Hash -ne 'f3c42116542c4cc57263c5ba6c4feabfc49fe771f2f98a79d2f7628b8762723b') { throw 'Inno Setup SHA-256 mismatch.' }
+          $installation = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$compiler`"" -Wait -PassThru
+          if ($installation.ExitCode) { throw "Inno Setup install exited $($installation.ExitCode)." }
+          ./packaging/windows/build.ps1 -Iscc (Join-Path $compiler ISCC.exe) -OutputDir (Join-Path $env:RUNNER_TEMP offlook-build)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ${{ runner.temp }}/offlook-build/release/*
+          if-no-files-found: error
+
+  verify-wheel:
+    needs: build
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        python: ['3.11', '3.15']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: ${{ runner.temp }}/python-dist
+      - env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $env:PYTHONPATH = ''
+          $venv = Join-Path $env:RUNNER_TEMP offlook-verification
+          python -m venv $venv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts/python.exe'
+          $wheel = Join-Path $env:RUNNER_TEMP "python-dist/offlook-$env:VERSION-py3-none-any.whl"
+          & $python -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: $wheel
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m pip check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m qa.windows_smoke --cli (Join-Path $venv 'Scripts/ol.exe')
+
+  testpypi:
+    if: inputs.publish && github.repository == 'EvanLuo0103/OffLook'
+    needs: [build, verify-wheel]
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  verify-testpypi:
+    needs: [build, testpypi]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: x64
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: ${{ runner.temp }}/python-dist
+      - env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $env:PYTHONPATH = ''
+          $dist = Join-Path $env:RUNNER_TEMP python-dist
+          $download = Join-Path $env:RUNNER_TEMP testpypi-download
+          python -m pip install packaging
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m qa.release_artifacts $dist --index test.pypi.org
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip --isolated download --no-deps --only-binary=:all: --index-url https://test.pypi.org/simple --dest $download "offlook==$env:VERSION"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $name = "offlook-$env:VERSION-py3-none-any.whl"
+          $wheel = Join-Path $download $name
+          if ((Get-FileHash -LiteralPath $wheel).Hash -ne (Get-FileHash -LiteralPath (Join-Path $dist $name)).Hash) { throw 'TestPyPI wheel hash mismatch.' }
+          $venv = Join-Path $env:RUNNER_TEMP testpypi-verification
+          python -m venv $venv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts/python.exe'
+          & $python -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: $wheel
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m qa.windows_smoke --cli (Join-Path $venv 'Scripts/ol.exe')
+
+  pypi:
+    needs: verify-testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  verify-pypi:
+    needs: pypi
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: ${{ runner.temp }}/python-dist
+      - run: |
+          python -m pip install packaging
+          python -m qa.release_artifacts "$RUNNER_TEMP/python-dist" --index pypi.org
+
+  github-release:
+    needs: [build, verify-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          name="OffLook-$VERSION-windows-x64-setup.exe"
+          (cd installer && sha256sum --check "$name.sha256")
+          existing=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[] | .tag_name')
+          if grep -Fxq "$TAG" <<< "$existing"; then
+            for asset in "$name" "$name.sha256"; do
+              digest=$(gh api "repos/$GH_REPO/releases/tags/$TAG" | jq -er --arg asset "$asset" '.assets[] | select(.name == $asset) | .digest')
+              [ "$digest" = "sha256:$(sha256sum "installer/$asset" | cut -d ' ' -f1)" ] || exit 1
+            done
+          else
+            gh release create "$TAG" --verify-tag --title "OffLook $VERSION" --generate-notes "installer/$name" "installer/$name.sha256"
+          fi

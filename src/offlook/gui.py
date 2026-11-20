@@ -8,7 +8,7 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from offlook.core.config import PreviewConfig
 from offlook.core.errors import OffLookError
@@ -16,6 +16,7 @@ from offlook.core.files import FileKind
 from offlook.core.hotkeys import parse_hotkey
 from offlook.preview.models import RenderRequest
 from offlook.preview.worker import WorkerRunner
+from offlook.ui.ai_approval import AiApprovalDialog, RunApprovals, display_path
 from offlook.ui.ai_task import AiTaskView
 from offlook.ui.file_results import build_result_table, fill_results
 from offlook.ui.filter_dialog import FilterDialog, build_filter_checks, start_filter_scan
@@ -118,6 +119,9 @@ class PreviewApplication:
         self._convert_results = queue.Queue()
         self._ai_thread = None
         self._ai_results = queue.Queue()
+        self._approvals: RunApprovals | None = None
+        self._approval_request = None
+        self._approval_window: AiApprovalDialog | None = None
         self.ai_quick_window: tk.Toplevel | None = None
         self._ai_quick_view: AiTaskView | None = None
         self._ai_transcript = ''
@@ -157,7 +161,14 @@ class PreviewApplication:
         self.ai_enabled = tk.BooleanVar(value=context.config.current.ai_enabled)
         self.ai_base_url = tk.StringVar(value=context.config.current.ai_base_url)
         self.ai_model = tk.StringVar(value=context.config.current.ai_model)
-        self.ai_key = tk.StringVar(value=context.config.current.ai_api_key)
+        self.ai_key = tk.StringVar()
+        self.ai_key_status = tk.StringVar()
+        self.ai_review_writes = tk.BooleanVar(value=False)
+        if resident and context.config.has_legacy_ai_key:
+            try:
+                context.config.migrate_legacy_ai_key()
+            except OffLookError:
+                self.ai_key_status.set(tr('ai.legacy'))
         self.ai_instruction = tk.StringVar()
         self.ai_status = tk.StringVar(value=tr('status.ai.default'))
         self._search_cache = ()
@@ -166,7 +177,7 @@ class PreviewApplication:
         if resident:
             from offlook.platforms.windows_startup import StartupManager
             from offlook.platforms.windows_tray import TrayIcon
-            self.startup = StartupManager(config_path)
+            self.startup = StartupManager(context.config.path if config_path is not None else None)
             try:
                 self.autostart.set(self.startup.is_enabled())
             except OffLookError as exc:
@@ -176,6 +187,7 @@ class PreviewApplication:
         self.root.protocol('WM_DELETE_WINDOW', self._hide if resident else self.shutdown)
         self.root.bind('<F1>', self._help_key)
         self.root.bind('<Configure>', self._main_configure)
+        self.root.bind('<Unmap>', lambda event: self._cancel_approvals('main') if event.widget is self.root else None)
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
             self._reconcile_hotkeys()
@@ -243,6 +255,8 @@ class PreviewApplication:
     def _select_main_page(self, page: str) -> None:
         if page not in self._pages:
             return
+        if self._main_page == 'ai' and page != 'ai':
+            self._cancel_approvals('main')
         if self._main_page == 'settings' and page != 'settings' and self._recording:
             self._cancel_recording()
             self.shortcut_feedback.set('')
@@ -357,15 +371,20 @@ class PreviewApplication:
             ttk.Label(fields, text=tr(label_key), style='Card.Muted.TLabel').grid(
                 row=row, column=0, sticky='w', padx=(0, 8), pady=3)
             ttk.Entry(fields, textvariable=variable, show=show).grid(row=row, column=1, sticky='ew', pady=3)
-        ttk.Button(connection, text=tr('btn.save_ai'), command=self._save_ai).pack(anchor='w', pady=(4, 0))
+        self.ai_save_button = ttk.Button(connection, text=tr('btn.save_ai'), command=self._save_ai)
+        self.ai_save_button.pack(anchor='w', pady=(4, 0))
+        self.ai_remove_button = ttk.Button(connection, text=tr('ai.remove_key'), command=lambda: self._save_ai(clear=True))
+        self.ai_remove_button.pack(anchor='w')
+        self._refresh_ai_key_status()
+        self._card_label(connection, textvariable=self.ai_key_status, pady=(4, 0))
         self._card_label(connection, textvariable=self.shortcut_statuses['ai'], pady=(4, 0))
 
         task = self._card(content, tr('card.ai_task'))
         self._ai_main_view = AiTaskView(task, instruction=self.ai_instruction, status=self.ai_status,
-                                       on_run=self._run_ai, fonts=self.fonts)
+                                       review_writes=self.ai_review_writes, on_run=lambda: self._run_ai(origin='main'), fonts=self.fonts)
         self._ai_main_view.pack(fill='both', expand=True)
         self._ai_main_view.set_output(self._ai_transcript)
-        self._ai_main_view.set_busy(self._ai_thread is not None)
+        self._set_ai_busy(self._ai_thread is not None)
 
     def _show_ai_quick(self) -> None:
         if self.closing:
@@ -393,6 +412,7 @@ class PreviewApplication:
                 return 'break'
 
             window.bind('<Map>', focus_when_mapped)
+            window.bind('<Unmap>', lambda event: self._cancel_approvals('quick') if event.widget is window else None)
             window.bind('<Escape>', dismiss)
             window.protocol('WM_DELETE_WINDOW', self._close_ai_quick)
         window.deiconify()
@@ -415,7 +435,8 @@ class PreviewApplication:
         hint.pack(fill='x', pady=(0, 6))
         hint.bind('<Configure>', self._wrap_label)
         self._ai_quick_view = AiTaskView(body, instruction=self.ai_instruction, status=self.ai_status,
-                                        on_run=self._run_ai, fonts=window._offlook_fonts, style_prefix='AiQuick.')
+                                        review_writes=self.ai_review_writes, on_run=lambda: self._run_ai(origin='quick'),
+                                        fonts=window._offlook_fonts, style_prefix='AiQuick.')
         self._ai_quick_view.pack(fill='both', expand=True)
         self._ai_quick_view.set_output(self._ai_transcript)
         self._ai_quick_view.set_busy(self._ai_thread is not None)
@@ -423,6 +444,7 @@ class PreviewApplication:
     def _close_ai_quick(self) -> None:
         window = self.ai_quick_window
         if window is not None:
+            self._cancel_approvals('quick')
             self.ai_quick_window = self._ai_quick_view = None
             window.destroy()
 
@@ -652,7 +674,7 @@ class PreviewApplication:
         """Offer formats for a snapshot of the selected paths and quality."""
         if self._conversion_request_blocked():
             return
-        from offlook.core import format_label, reachable_targets
+        from offlook.core.conversion import conversion_options, format_label
         from offlook.ui.convert_dialog import ConversionDialog
 
         sources = tuple(Path(path) for path in paths)
@@ -660,7 +682,9 @@ class PreviewApplication:
         status_key = None
         details = ''
         try:
-            options = tuple((target, format_label(target)) for target in reachable_targets(sources, mode))
+            options = tuple((target, format_label(target),
+                             f'{issue.source.name}: {tr(f"convert.block.{issue.code}")}' if issue else '')
+                            for target, issue in conversion_options(sources, mode))
             if not options:
                 status_key = 'status.convert.none'
         except OffLookError as exc:
@@ -754,22 +778,32 @@ class PreviewApplication:
             dialog.destroy()
             self.filter_dialog = None
 
-    def _save_ai(self):
-        """Persist AI settings only when they validate."""
+    def _refresh_ai_key_status(self):
+        manager = self.context.config
+        self.ai_key_status.set(manager.credential_warning or tr('ai.legacy' if manager.has_legacy_ai_key else
+                               'ai.key_saved' if manager.ai_credential_target else 'status.ai.no_key'))
+
+    def _save_ai(self, *, clear=False):
+        if self._ai_thread is not None:
+            return
+        manager = self.context.config
+        key = None if clear else self.ai_key.get().strip() or None
         try:
-            desired = replace(
-                self.context.config.current,
-                ai_enabled=self.ai_enabled.get(),
-                ai_base_url=self.ai_base_url.get().strip(),
-                ai_api_key=self.ai_key.get().strip(),
-                ai_model=self.ai_model.get().strip(),
-            )
-            self.context.config.update(desired, persist=True)
-            self.status.set(tr('status.ai.saved'))
+            desired = manager.current if clear else replace(manager.current, ai_enabled=self.ai_enabled.get(),
+                        ai_base_url=self.ai_base_url.get().strip(), ai_model=self.ai_model.get().strip())
+            if (not key and desired.ai_base_url != manager.current.ai_base_url and
+                    (manager.ai_credential_target or manager.has_legacy_ai_key)):
+                self.ai_key_status.set(tr('ai.change_endpoint'))
+                return
+            manager.update(desired, persist=True, ai_key_action='clear' if clear else 'replace' if key else 'keep', ai_key=key)
+            self.ai_key.set('')
+            self._refresh_ai_key_status()
+            self.status.set(manager.credential_warning or tr('status.ai.saved'))
         except OffLookError as exc:
+            self.ai_key_status.set(str(exc))
             self.status.set(str(exc))
 
-    def _run_ai(self):
+    def _run_ai(self, *, origin: Literal['main', 'quick']):
         """Run the configured AI assistant in a worker, never on the Tk thread."""
         if self.closing or self._ai_thread is not None:
             return
@@ -778,32 +812,90 @@ class PreviewApplication:
             self.ai_status.set(tr('status.ai.no_instruction'))
             return
         config = self.context.config.current
-        if not config.ai_api_key:
-            self.ai_status.set(tr('status.ai.no_key'))
+        target = self.context.config.ai_credential_target
+        if not target:
+            self.ai_status.set(tr('ai.legacy' if self.context.config.has_legacy_ai_key else 'status.ai.no_key'))
             return
+        approvals = self._approvals = RunApprovals(origin) if self.ai_review_writes.get() else None
+        self.ai_review_writes.set(False)
+        missing = tr('ai.key_missing')
         self._set_ai_busy(True)
         self.ai_status.set(tr('status.ai.running'))
         def work():
             try:
-                from offlook.core import OpenAiCompatibleProvider, run_instruction
-                provider = OpenAiCompatibleProvider(config.ai_base_url, config.ai_api_key, config.ai_model)
-                self._ai_results.put((run_instruction(instruction, provider=provider), None))
+                from offlook.core import OpenAiCompatibleProvider, default_tools, run_instruction
+                from offlook.platforms.windows_credentials import read_api_key
+
+                key = read_api_key(target)
+                if not key:
+                    self._ai_results.put((None, missing))
+                    return
+                provider = OpenAiCompatibleProvider(config.ai_base_url, key, config.ai_model)
+                tools = default_tools(approve_write=approvals.request if approvals else None)
+                self._ai_results.put((run_instruction(instruction, provider=provider, tools=tools), None))
             except OffLookError as exc:
                 self._ai_results.put((None, str(exc)))
             except Exception as exc:
-                self._ai_results.put((None, f'AI assistant failed: {type(exc).__name__}: {exc}'))
+                self._ai_results.put((None, f'AI assistant failed: {type(exc).__name__}'))
         self._ai_thread = threading.Thread(target=work, name='OffLookAi', daemon=True)
         try:
             self._ai_thread.start()
         except RuntimeError as exc:
             self._ai_thread = None
+            self._cancel_approvals()
+            self._approvals = None
             self._set_ai_busy(False)
             self.ai_status.set(f'AI assistant failed: {type(exc).__name__}: {exc}')
 
     def _set_ai_busy(self, busy: bool) -> None:
+        for button in (self.ai_save_button, self.ai_remove_button):
+            button.state(['disabled' if busy else '!disabled'])
         self._ai_main_view.set_busy(busy)
         if self._ai_quick_view is not None:
             self._ai_quick_view.set_busy(busy)
+
+    def _cancel_approvals(self, origin=None):
+        if self._approvals is None or (origin and self._approvals.origin != origin):
+            return
+        self._approvals.cancel()
+        self._close_approval_window()
+
+    def _close_approval_window(self):
+        self._approval_request = None
+        if self._approval_window is not None:
+            self._approval_window.destroy()
+            self._approval_window = None
+
+    def _approval_visible(self, approvals):
+        if self.closing or approvals is not self._approvals:
+            return False
+        if approvals.origin == 'quick':
+            return self.ai_quick_window is not None and bool(self.ai_quick_window.winfo_viewable())
+        return self.root.state() not in ('withdrawn', 'iconic') and self._main_page == 'ai'
+
+    def _poll_approval(self):
+        import time
+
+        approvals = self._approvals
+        if approvals is None:
+            return
+        request = self._approval_request
+        if request is None:
+            try:
+                request = approvals.requests.get_nowait()
+            except queue.Empty:
+                return
+            self._approval_request = request
+        if not approvals.is_pending(request):
+            self._close_approval_window()
+        elif not self._approval_visible(approvals) or time.monotonic() >= request.deadline:
+            self._cancel_approvals()
+        elif self._approval_window is None:
+            def decide(allow):
+                if request is self._approval_request:
+                    approvals.decide(request, allow and self._approval_visible(approvals))
+                    self._close_approval_window()
+            self._approval_window = AiApprovalDialog(self.root, request.plan, decide)
 
     def _set_ai_output(self, value: str) -> None:
         self._ai_transcript = value
@@ -826,6 +918,7 @@ class PreviewApplication:
     def _hide(self):
         """Hide only when the tray provides a usable return route."""
         if self.tray is not None and not self.tray.is_stopped:
+            self._cancel_approvals('main')
             self.root.withdraw()
         else:
             self.status.set(tr('status.tray_unavailable'))
@@ -871,6 +964,7 @@ class PreviewApplication:
 
     def _rebuild_ui(self, previous: str) -> None:
         """Retranslate the window controls without losing page or task state."""
+        self._cancel_approvals()
         if self._recording:
             self._cancel_recording()
             self.shortcut_feedback.set('')
@@ -1359,7 +1453,7 @@ class PreviewApplication:
                         if self.preview is not None else None)
         owned = {main_hwnd, preview_hwnd}
         for window in (self.help_window, self.diff_window, self.convert_dialog,
-                       self.filter_dialog, self.ai_quick_window):
+                       self.filter_dialog, self.ai_quick_window, self._approval_window):
             if window is not None and window.winfo_exists():
                 owned.add(win32gui.GetAncestor(window.winfo_id(), 2))
         if action == 'ai':
@@ -1556,9 +1650,12 @@ class PreviewApplication:
                 pass
             else:
                 self._report_conversion(conversion, convert_error)
+        self._poll_approval()
         if self._ai_thread is not None and not self._ai_thread.is_alive():
             ai_result, ai_error = self._ai_results.get_nowait()
             self._ai_thread = None
+            self._cancel_approvals()
+            self._approvals = None
             if not self.closing:
                 self._set_ai_busy(False)
                 if ai_error is not None:
@@ -1572,6 +1669,10 @@ class PreviewApplication:
                             lines.append(f'• {step.name}({step.arguments})')
                             if step.error:
                                 lines.append(f'  error: {step.error}')
+                            elif isinstance(step.result, dict) and 'results' in step.result:
+                                for item in step.result['results']:
+                                    lines.append(f"  {item['status']}: {display_path(Path(item['source']))} → "
+                                                 f"{display_path(Path(item['destination']))} {item['message']}")
                     self.ai_status.set(tr('status.ai.finished'))
                     self._set_ai_output('\n'.join(lines))
         for result in self.runner.poll():
@@ -1620,6 +1721,7 @@ class PreviewApplication:
         """Keep polling until every native listener and initiated PATH write is closed."""
         if self.closing: return
         self.closing=True
+        self._cancel_approvals()
         self._cancel_recording()
         self._cancel_selection(resume=False)
         self.close_preview(exiting=False)

@@ -27,10 +27,10 @@ Converting files
 Select files in File Explorer and press the configured Convert files shortcut (default Alt+C), or click "Choose files to convert" in "File tools". The shortcut opens only the conversion dialog. Choose a target and click Convert or press Enter. Before starting, Cancel, Esc or X dismisses the chooser. Progress, output paths and errors stay in the same window; click Close when done. For DOCX to PDF, auto uses Microsoft Word with optional docx2pdf, text uses paragraph text, and office uses LibreOffice.
 
 Command line
-Run `py -m offlook --help` for all commands, including search, compare, convert, copy, move, organize, settings, startup and path. To see a command's options, add `--help` after its name. Use `offlook` directly after setting up PATH.
+Run `ol --help` for all commands, including search, compare, convert, copy, move, organize, settings, startup and path. To see a command's options, add `--help` after its name. Use Settings → Add to PATH if `ol` is not found.
 
 AI file assistant
-Save an OpenAI-compatible endpoint, model and API key on the main AI page. The default Ctrl+Alt+Shift+A opens only the AI quick window; no file selection is needed. Closing it does not stop a run. Only clicking "Run with AI" sends your instruction and can send tool results with local paths, filenames and sizes. The tools can change local files; the API key is stored in plain text in the local JSON configuration.
+Save an OpenAI-compatible endpoint, model and API key on the main AI page. The key goes into Windows Credential Manager. Ctrl+Alt+Shift+A opens only the AI quick window. Run sends your instruction and may send local paths, names and sizes. Tools are read-only by default. To request a write, check “Review file changes for this run” and approve each plan. Closing the originating view denies pending writes; it does not roll back an approved operation.
 
 Switching the interface language
 Use the "中文 / English" buttons at the top-right of the main window. Switching languages saves the choice and closes this Help window; reopen Help to view it in the selected language.
@@ -89,10 +89,10 @@ _HELP_ZH = """選擇要預覽的檔案
 在檔案總管選取檔案並按轉換快捷鍵（預設 Alt+C），或在「檔案工具」按「選擇要轉換的檔案」。快捷鍵只開啟轉換小視窗。選擇格式後按「轉換」或 Enter；開始前可按「取消」、Esc 或 X。進度、輸出路徑和錯誤都在同一個視窗顯示，完成後按「關閉」。DOCX 轉 PDF 時，auto 使用 Microsoft Word 與選用的 docx2pdf，text 只取段落文字，office 使用 LibreOffice。
 
 命令列
-執行 `py -m offlook --help` 查看所有命令，包括 search、compare、convert、copy、move、organize、settings、startup 和 path。在命令名稱後加 `--help` 可查看參數；設定 PATH 後可直接使用 `offlook`。
+執行 `ol --help` 查看所有命令，包括 search、compare、convert、copy、move、organize、settings、startup 和 path。在命令名稱後加 `--help` 可查看參數；找不到 `ol` 時，請在設定中加入 PATH。
 
 AI 檔案助手
-在主視窗的 AI 頁面儲存 OpenAI 相容端點、模型及 API 金鑰。預設 Ctrl+Alt+Shift+A 只開啟 AI 小視窗，無需選取檔案。關閉小視窗不會中止執行。只有按「用 AI 執行」才會傳送指令，也可能將含有本機路徑、名稱及大小的工具結果傳給設定的服務。工具可以變更本機檔案；金鑰以明文儲存在本機 JSON。
+在主視窗的 AI 頁面儲存 OpenAI 相容端點、模型及 API 金鑰。金鑰存放於 Windows 認證管理員。Ctrl+Alt+Shift+A 只開啟 AI 小視窗。執行會傳送指令，並可能傳送本機路徑、名稱及大小。工具預設唯讀；若需變更檔案，請勾選「審核本次執行的檔案變更」，並逐次批准。關閉發出指令的視窗會拒絕待審核變更，但不會復原已批准的作業。
 
 切換介面語言
 使用右上方的「中文 / English」按鈕。切換語言會儲存選擇並關閉說明視窗；重新開啟即可閱讀新語言的說明。

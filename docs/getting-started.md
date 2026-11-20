@@ -2,10 +2,9 @@
 
 ## 1. Download and install
 
-Install 64-bit Python 3.11–3.15 for Windows, including pip, Python Launcher, and Tcl/Tk.
-On GitHub, click **Code → Download ZIP**, extract the archive, and open the folder containing pyproject.toml. Type powershell in File Explorer's address bar and press Enter.
-
-Run these commands in order; no virtual environment is needed:
+- **Windows installer:** When available, download `OffLook-<version>-windows-x64-setup.exe` from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Python and administrator permissions are not required. Launch OffLook from the Start menu. The installer is unsigned.
+- **PyPI, once published:** On Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher, run `py -m pip install --user offlook`, then `py -m offlook`. Use `offlook[office]` for the optional Python conversion libraries.
+- **Source checkout:** On GitHub, click **Code → Download ZIP**, extract it, and open PowerShell in the folder containing `pyproject.toml`. Run:
 
 ```powershell
 py -m pip install --user --only-binary=:all: -r requirements.txt
@@ -13,9 +12,7 @@ py -m pip install --user --only-binary=:all: -e .
 py -m offlook
 ```
 
-The first command installs dependencies, the second installs OffLook itself (and also installs dependencies automatically), and the third opens the main window. The initial installation downloads packages; subsequent previews do not need a network connection. Do not move or delete the project folder after installation.
-
-OffLook has not been published to PyPI; do not install another package with the same name.
+The editable source install depends on this directory; do not move or delete it. Installation can require downloads, but previews work offline.
 
 Use the sidebar to switch between **File tools**, **Search & filter**, **AI file assistant**, and **Settings**. Switching pages does not clear forms or results.
 
@@ -30,9 +27,9 @@ ol --version
 ol preview '.\README.md'
 ```
 
-Only the current user's installation directory is added; administrator privileges are not required. If another offlook version takes precedence, the main window reports the conflict. You can still use `py -m offlook` to launch the version installed for this Python. Existing terminals do not update automatically.
+Only the current user's installation directory is added; administrator privileges are not required. Existing terminals do not update automatically. If PowerShell resolves `ol` to another command, run `Get-Command ol -All` and use `ol.exe` by its full path.
 
-`ol` and `offlook` run the same CLI. If you installed OffLook before `ol` was added, rerun the editable install command above to generate `ol.exe`. If PowerShell resolves `ol` to another command, use `Get-Command ol -All` to check the conflict, or use `offlook` instead.
+The Windows installer provides `OffLook.exe` for the graphical app and `ol.exe` for terminal commands. Python installations provide both `ol` and `offlook` as CLI commands; `py -m offlook` also works without a PATH change.
 
 ## 3. Preview files
 
@@ -106,7 +103,7 @@ For filtering in the app, see [Search and filter files](#search-and-filter-files
 
 **Convert files**: select one or more files in File Explorer and press the default **Alt+C**, or click **Choose files to convert** in **File tools**. The shortcut opens only the **Convert to** dialog; it does not restore the main window. Choose a format and click **Convert** or press Enter. **Cancel**, Esc, or X dismisses the chooser before conversion. Once started, progress and the result (output paths or an error) stay in the same dialog; click **Close** when finished. Multiple images targeting PDF become pages of one PDF; other files are converted individually. OffLook writes outputs next to the source and adds a number if an output name already exists.
 
-Set **Quality** before opening the dialog. The formats and backends below determine which modes are useful. An offered target may still fail if its backend is missing. `python-docx` is installed with OffLook; `docx2pdf`, `openpyxl`, and `python-pptx` are optional packages.
+Set **Quality** before opening the dialog. Unavailable targets are marked with the missing backend or incompatible mode before you start. `--list-targets` lists format tokens, not installed backends. The Windows installer bundles `openpyxl`, `python-pptx`, and `docx2pdf`; Python installations can use the `office` extra. Microsoft Word and LibreOffice are not bundled.
 
 | Source | Available outputs and requirements |
 | --- | --- |
@@ -124,15 +121,13 @@ Direct CLI and Python conversion can convert legacy Office files to PDF with Lib
 
 ### AI file assistant
 
-**AI file assistant**: enter an OpenAI-compatible **Base URL** (for example, `https://api.deepseek.com`), a **Model** (for example, `deepseek-chat`), and your **API key**, then click **Save AI settings**. Saving does not contact the service. The key is saved in plaintext in the local JSON configuration; keep that file private. The **Enable AI assistant** checkbox is a saved preference, not a runtime access control.
+Enter an OpenAI-compatible **Base URL**, **Model**, and **API key**, then click **Save AI settings**. Saving does not contact the service. The key is stored in Windows Credential Manager for your account, configuration path, and endpoint. Leave the field blank to keep the saved key or use **Remove saved key** to remove it. A copied profile needs its own key. OffLook migrates a legacy plaintext key when the resident app starts or settings are saved; migration does not remove older backups. Rotate a key that was previously shared. **Enable AI assistant** remains a saved preference, not an access control.
 
-Press **Ctrl+Alt+Shift+A** to open the AI quick window without restoring or switching the main window. No file selection is needed. Both views share the instruction, progress, and last result. The quick window uses the saved connection settings and can close during a run without cancelling it.
-
-To contact the service, enter an instruction such as `List PDF files in D:\Docs` and click **Run with AI**. Your instruction is sent to the configured service; subsequent requests may include tool results such as paths, filenames, and sizes. The assistant uses OffLook's local tools to list, filter, move, copy, or organize files. Use a service you trust, and start with a listing if you do not want to change files.
+Press **Ctrl+Alt+Shift+A** to open only the AI quick window. The two views share the instruction, progress, and last result. Clicking **Run with AI** sends the instruction and may send paths, filenames, and sizes to the configured service. Tools are read-only by default. To move, copy, or organize files, check **Review file changes for this run** before running, then approve each preview. Closing the originating view denies pending changes but does not roll back approved work.
 
 ## 7. Command-line reference
 
-Run `ol <command> --help` for exact options. The `ol` and `offlook` commands require the installation's Scripts directory on PATH; `py -m offlook` also works without that PATH change. Square brackets below denote optional operands, not literal characters. Put global options (`--config PATH`, `--background`, `--version`) before the command. Quote paths with spaces.
+Run `ol <command> --help` for exact options. In the examples below, Windows installer users can substitute `ol` for `py -m offlook`, or run `ol.exe` by its full path. Square brackets denote optional operands, not literal characters. Put global options (`--config PATH`, `--background`, `--version`) before the command. Quote paths with spaces.
 
 | Command | Behavior |
 | --- | --- |
@@ -162,7 +157,7 @@ py -m offlook settings show
 py -m offlook startup status
 ```
 
-Use `py -m offlook path add` if the UI is unavailable. If policy prevents the change, do not elevate or modify the machine PATH; keep using `py -m offlook`.
+Use `ol path add` (or `py -m offlook path add` for Python installations) if the UI is unavailable. If policy prevents the change, do not elevate or modify the machine PATH; use the executable's full path or the Python module command.
 
 ### Filter examples
 

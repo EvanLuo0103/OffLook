@@ -104,8 +104,10 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | convert_mode | `auto`; also `text` and `office`. Backend choice depends on the source and target. |
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
-| ai_enabled / ai_base_url / ai_api_key / ai_model | `False` / `https://api.deepseek.com` / `""` / `deepseek-chat`. `ai_enabled` is a saved preference, not a runtime gate. The key is saved in plaintext in JSON. |
+| ai_enabled / ai_base_url / ai_model | `False` / `https://api.deepseek.com` / `deepseek-chat`. `ai_enabled` is a saved preference, not a runtime gate. Keys are no longer fields on `PreviewConfig`. |
 | language | en; also zh. Selects the interface language; `offlook.ui.i18n.tr` reads it. |
+
+On Windows, save a key with `context.config.update(config, persist=True, ai_key_action='replace', ai_key=key)`. Use `ai_key_action='clear'` to remove it. Ordinary config loads do not read the vault or migrate legacy keys. A key is bound to its profile path and endpoint; pass a new key when changing endpoints.
 
 All six combinations are canonicalized with `parse_hotkey` and must be distinct even when `hotkey_enabled` is false. Loading an older configuration does not rewrite it. For a missing `filter_hotkey`, the first unused candidate is chosen from `Ctrl+Alt+F`, `Ctrl+Alt+Shift+F`, `Ctrl+Alt+G`, `Ctrl+Alt+Shift+G`, `Ctrl+Alt+J`, `Ctrl+Alt+Shift+J`. Then, if `ai_hotkey` is missing, the first unused candidate is chosen from `Ctrl+Alt+Shift+A`, `Ctrl+Alt+A`, `Ctrl+Alt+Shift+I`, `Ctrl+Alt+I`, `Ctrl+Alt+Shift+K`, `Ctrl+Alt+K`. Existing explicit bindings are preserved; invalid or duplicate values raise `ConfigError`. OS registration conflicts do not trigger a different binding.
 
@@ -168,7 +170,7 @@ for step in result.steps:
     print(step.name, step.arguments, step.result, step.error)
 ```
 
-`run_instruction` is synchronous; call it from a worker, never a Tk callback. Running it (or clicking **Run with AI** in the GUI) sends the instruction to the configured service. Subsequent requests may include tool results such as paths, filenames, and sizes. The tools `list_files`, `filter_files`, `move_files`, `copy_files`, and `organize_by_kind` validate local drive-letter paths and return bounded, JSON-serializable results. Move, copy, and organize operations can change local files. Use a custom `AiToolRegistry` to limit or extend the operations available to the model, and subclass `AiProvider` to integrate a different API. The GUI saves its API key in plaintext in the local JSON configuration; do not commit or share that file.
+`run_instruction` is synchronous; call it from a worker, never a Tk callback. Instructions and some tool results can reach the configured service. `default_tools()` exposes only `list_files` and `filter_files`. `default_tools(approve_write=callback)` also exposes the built-in move, copy, and organize tools; the trusted callback receives a frozen plan and must approve each operation explicitly. The default write tools never overwrite files. A custom `AiToolRegistry` remains a trusted extension, and an `AiProvider` subclass can integrate a different API.
 
 ## Extend renderers
 

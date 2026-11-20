@@ -1,0 +1,27 @@
+name: Windows CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14', '3.15']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+      - run: 'python -m pip install --only-binary=:all: .'
+      - run: python -m pip check
+      - run: |
+          $scripts = python -c "import sysconfig; print(sysconfig.get_path('scripts'))"
+          python -m qa.windows_smoke --cli (Join-Path $scripts ol.exe)
+      - if: matrix.python == '3.13'
+        run: |
+          python -m pip install --only-binary=:all: '.[office]'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m unittest qa.test_conversion_preflight qa.test_ai_safety qa.test_credentials

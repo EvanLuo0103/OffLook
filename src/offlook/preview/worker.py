@@ -250,7 +250,13 @@ class WorkerRunner:
                                         name="offlook-preview")
         deadline = time.monotonic() + request.config.preview_timeout_seconds
         try:
-            process.start()
+            if getattr(sys, 'frozen', False):
+                from offlook.platforms.windows_launch import frozen_spawn_lock
+
+                with frozen_spawn_lock:
+                    process.start()
+            else:
+                process.start()
         except Exception as exc:
             reader.close()
             writer.close()

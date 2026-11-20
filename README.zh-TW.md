@@ -10,15 +10,16 @@ OffLook 是 Windows 的離線檔案預覽工具，提供圖形介面及命令列
 
 ## 安裝與啟動
 
-從 GitHub 下載並解壓 ZIP，在包含 `pyproject.toml` 的資料夾開啟 PowerShell。需要 Windows 版 64 位元 Python 3.11–3.15，並安裝 pip、Python Launcher 和 Tcl/Tk。
+**不安裝 Python：** Windows x64 安裝程式發布後可從 [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases) 下載。安裝後從開始功能表開啟；可選擇將 `ol` 加入目前使用者的 PATH。
+
+**已有 Python：** [PyPI 套件](https://pypi.org/project/offlook/) 發布後，使用 Windows 版 64 位元 Python 3.11–3.15（含 Tcl/Tk 與 Python Launcher）執行：
 
 ```powershell
-py -m pip install --user --only-binary=:all: -r requirements.txt
-py -m pip install --user --only-binary=:all: -e .
+py -m pip install --user offlook
 py -m offlook
 ```
 
-請從此儲存庫安裝，不要從 PyPI 安裝同名套件。安裝後請保留解壓的資料夾。
+需要選用的 Python 轉換套件時，可安裝 `offlook[office]`。Microsoft Word 與 LibreOffice 仍需另外安裝。首發前可依[使用指南](docs/getting-started.md#1-download-and-install)從原始碼安裝。
 
 ## 預設快捷鍵
 

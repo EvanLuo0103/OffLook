@@ -16,7 +16,7 @@ def wrap_label(event: tk.Event) -> None:
 
 class AiTaskView(ttk.Frame):
     def __init__(self, parent: tk.Misc, *, instruction: tk.StringVar, status: tk.StringVar,
-                 on_run: Callable[[], None], fonts: Mapping[str, tkfont.Font],
+                 review_writes: tk.BooleanVar, on_run: Callable[[], None], fonts: Mapping[str, tkfont.Font],
                  style_prefix: str = '') -> None:
         super().__init__(parent, style='Card.TFrame')
         label_style = f'{style_prefix}Card.Muted.TLabel'
@@ -28,6 +28,8 @@ class AiTaskView(ttk.Frame):
         privacy = ttk.Label(self, text=tr('hint.ai_run_privacy'), style=label_style, justify='left')
         privacy.pack(fill='x', pady=(0, 4))
         privacy.bind('<Configure>', wrap_label)
+        self.review = ttk.Checkbutton(self, text=tr('check.ai_review_writes'), variable=review_writes)
+        self.review.pack(anchor='w')
         self.run_button = ttk.Button(self, text=tr('btn.run_ai'), command=on_run,
                                      style=f'{style_prefix}Accent.TButton')
         self.run_button.pack(anchor='w', pady=(0, 6))
@@ -49,6 +51,7 @@ class AiTaskView(ttk.Frame):
 
     def set_busy(self, busy: bool) -> None:
         self.run_button.state(['disabled' if busy else '!disabled'])
+        self.review.state(['disabled' if busy else '!disabled'])
 
     def set_output(self, value: str) -> None:
         self.output.configure(state='normal')

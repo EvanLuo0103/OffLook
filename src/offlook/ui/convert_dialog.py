@@ -14,7 +14,7 @@ from offlook.ui.theme import COLORS, size_window, window_fonts
 class ConversionDialog(tk.Toplevel):
     """One window for the entire conversion, even with a withdrawn Tk root."""
 
-    def __init__(self, parent: tk.Misc, options: Sequence[tuple[str, str]],
+    def __init__(self, parent: tk.Misc, options: Sequence[tuple[str, str, str]],
                  source_count: int, on_choose: Callable[[str], None]) -> None:
         super().__init__(parent)
         self.withdraw()
@@ -34,11 +34,13 @@ class ConversionDialog(tk.Toplevel):
         frame = ttk.Frame(self, style='Card.TFrame', padding=pad)
         frame.pack(fill='both', expand=True, padx=pad, pady=pad)
         ttk.Label(frame, text=self.title(), style='Convert.Section.TLabel').pack(anchor='w')
-        self.dropdown = ttk.Combobox(frame, values=tuple(label for _, label in options),
+        suffix = self._text('convert.dialog.unavailable')
+        self.dropdown = ttk.Combobox(frame, values=tuple(label + suffix if reason else label
+                                                       for _, label, reason in self._targets),
                                      state='readonly', font=fonts['body'])
         if options:
             self.dropdown.pack(fill='x', pady=(8, 0))
-            self.dropdown.current(0)
+            self.dropdown.current(next((i for i, (_, _, reason) in enumerate(self._targets) if not reason), 0))
 
         buttons = ttk.Frame(frame, style='Card.TFrame')
         buttons.pack(side='bottom', fill='x', pady=(8, 0))
@@ -67,6 +69,8 @@ class ConversionDialog(tk.Toplevel):
         self.bind('<Return>', self._confirm)
         self.bind('<Escape>', self._escape)
         self.protocol('WM_DELETE_WINDOW', self._dismiss)
+        self.dropdown.bind('<<ComboboxSelected>>', self._update_choice)
+        self._update_choice()
 
     def _text(self, key: str) -> str:
         return tr_in(self.language_code, key)
@@ -94,10 +98,19 @@ class ConversionDialog(tk.Toplevel):
         else:
             self.dismiss_button.focus_force()
 
+
+    def _update_choice(self, _event: tk.Event | None = None) -> None:
+        if self._phase != 'choose':
+            return
+        index = self.dropdown.current()
+        valid = 0 <= index < len(self._targets)
+        reason = self._targets[index][2] if valid else ''
+        self.summary.configure(text=reason)
+        self.convert_button.state(['!disabled' if valid and not reason else 'disabled'])
     def _choose(self) -> None:
         if self._phase == 'choose':
             index = self.dropdown.current()
-            if 0 <= index < len(self._targets):
+            if 0 <= index < len(self._targets) and not self._targets[index][2]:
                 self._on_choose(self._targets[index][0])
 
     def _dismiss(self) -> None:

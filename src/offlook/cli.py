@@ -29,8 +29,9 @@ _SETTING_TYPES = {
 }
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, windowed: bool = False) -> int:
     """Parse CLI options and return 0, 1, 2, or 130 without uploading files."""
+    multiprocessing.freeze_support()
     from offlook.core.files import FileKind
 
     parser = argparse.ArgumentParser(prog='offlook', description='Offline file previews for Windows')
@@ -98,6 +99,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     path = commands.add_parser('path', help='Add this installation to the current user PATH')
     path.add_argument('operation', choices=('add',))
     args = parser.parse_args(argv)
+    if windowed and not (args.command in (None, 'preview') or (args.command == 'filter' and args.gui)):
+        parser.error('Use ol.exe for terminal commands')
     if args.background and args.command is not None:
         parser.error('--background cannot be combined with a subcommand')
     if sys.platform != 'win32':
@@ -161,12 +164,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                                          ensure_ascii=False),))
             else:
                 manager.update(replace(manager.current, **{args.key: setting_value}), persist=True)
+                if manager.credential_warning:
+                    print(f'OffLook: {manager.credential_warning}', file=sys.stderr)
             return 0
         if args.command == 'startup':
             from offlook.platforms.windows_startup import StartupManager
 
             if args.config is not None:
-                create_context(args.config)
+                args.config = create_context(args.config).config.path
             startup_manager = StartupManager(args.config)
             if args.operation == 'status':
                 _write_lines(('enabled' if startup_manager.is_enabled() else 'disabled',))
@@ -197,26 +202,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     except KeyboardInterrupt:
         return 130
 
-    multiprocessing.freeze_support()
     try:
         from tkinter import TclError
     except ImportError as exc:
         print(f'OffLook dependency / desktop initialization failed: {exc}', file=sys.stderr)
         return 2
     try:
+        import os
+
+        from offlook.platforms.windows_launch import frozen_gui_executable
+
+        gui = frozen_gui_executable() if args.background else None
+        executable = Path(sys.executable)
+        if args.background and executable.name.lower() not in ('pythonw.exe', 'offlook.exe' if gui else ''):
+            if gui is None:
+                pythonw = executable.with_name('pythonw.exe')
+                if not pythonw.is_file():
+                    print('pythonw.exe not found; cannot start without a console', file=sys.stderr)
+                    return 2
+                command = [str(pythonw), '-m', 'offlook']
+            else:
+                command = [str(gui)]
+            if args.config:
+                command.extend(['--config', str(context.config.path)])
+            command.append('--background')
+            env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1') if gui else None
+            subprocess.Popen(command, creationflags=subprocess.DETACHED_PROCESS, env=env)
+            return 0
         from offlook.gui import PreviewApplication
 
-        if args.background and Path(sys.executable).name.lower() != 'pythonw.exe':
-            pythonw = Path(sys.executable).with_name('pythonw.exe')
-            if not pythonw.is_file():
-                print('pythonw.exe not found; cannot start without a console', file=sys.stderr)
-                return 2
-            command = [str(pythonw), '-m', 'offlook']
-            if args.config:
-                command.extend(['--config', str(Path(args.config).absolute())])
-            command.append('--background')
-            subprocess.Popen(command, creationflags=subprocess.DETACHED_PROCESS)
-            return 0
         app = PreviewApplication(context, resident=args.command is None,
                                  always_on_top=getattr(args, 'topmost', None),
                                  background=args.background, config_path=args.config)
@@ -301,8 +315,8 @@ def _add_user_path() -> int:
     if not result.broadcast_ok:
         print('OffLook: user PATH saved; open a new terminal to pick it up', file=sys.stderr)
     if result.conflicting_executable is not None:
-        print(f'OffLook: another offlook takes precedence: {result.conflicting_executable}; use py -m offlook',
-              file=sys.stderr)
+        print(f'OffLook: another installation takes precedence: {result.conflicting_executable}; '
+              f'run the command from {result.scripts_dir}', file=sys.stderr)
     return 0
 
 

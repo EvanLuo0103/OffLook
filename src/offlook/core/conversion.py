@@ -468,19 +468,35 @@ def _office_convert(source: Path, directory: Path, convert_to: str, target_exten
     import subprocess
     import tempfile
 
-    soffice = _require_soffice()
+    import sys
+
+    soffice = str(Path(_require_soffice()).absolute())
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="offlook-soffice-") as temporary:
         try:
-            completed = subprocess.run(
-                [
-                    soffice, "--headless", "--norestore", "--convert-to", convert_to,
-                    "--outdir", temporary, str(source),
-                ],
-                capture_output=True, timeout=300,
-            )
+            command = [soffice, '--headless', '--norestore', '--convert-to', convert_to,
+                       '--outdir', temporary, str(source)]
+            if getattr(sys, 'frozen', False):
+                from offlook.platforms.windows_launch import external_process_environment
+
+                process = None
+                try:
+                    with external_process_environment() as environment:
+                        process = subprocess.Popen(command, env=environment, stdout=subprocess.PIPE,
+                                                   stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW)
+                    stdout, stderr = process.communicate(timeout=300)
+                    completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+                finally:
+                    if process is not None:
+                        if process.poll() is None:
+                            process.kill()
+                        process.communicate()
+            else:
+                completed = subprocess.run(command, capture_output=True, timeout=300)
         except subprocess.TimeoutExpired as exc:
             raise ConversionError("LibreOffice conversion timed out") from exc
+        except OSError as exc:
+            raise ConversionError('Cannot launch LibreOffice with its own DLL search path') from exc
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or b"").decode("utf-8", "replace").strip()
             raise ConversionError(f"LibreOffice conversion failed{': ' + detail if detail else ''}")
@@ -607,8 +623,8 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
         elif kind is FileKind.PDF:
             outputs = _convert_pdf_to_images(source, directory, extension)
         elif kind is FileKind.DOCUMENT and suffix in (".pptx", ".pptm"):
-            if resolved_mode == "text":
-                raise ConversionError("Image output for presentations requires LibreOffice; choose PDF, TXT, or Word")
+            if resolved_mode == 'text':
+                raise ConversionError(f'{source.name}: {conversion_blocker_message("slides_image_mode")}')
             outputs = _office_to_images(source, directory, extension)
         else:
             raise ConversionError("Only images, PDFs, and presentations can be converted to image formats")
@@ -651,7 +667,8 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
                     outputs = (destination,)
             elif suffix in (".xlsx", ".xlsm"):
                 if not use_office:
-                    raise ConversionError("Excel to PDF requires LibreOffice; use CSV or TXT instead")
+                    code = 'excel_pdf_mode' if resolved_mode == 'text' else 'libreoffice'
+                    raise ConversionError(f'{source.name}: {conversion_blocker_message(code)}')
                 outputs = _office_to_pdf(source, directory)
             else:
                 raise ConversionError("This document type cannot be converted to PDF")
@@ -774,6 +791,109 @@ def _is_image_source(path: Path) -> bool:
         return False
 
 
+@dataclass(frozen=True)
+class ConversionBlocker:
+    source: Path
+    code: str
+
+
+class _BackendProbes:
+    def __init__(self) -> None:
+        self._found: dict[str, bool] = {}
+
+    def has(self, backend: str) -> bool:
+        if backend not in self._found:
+            self._found[backend] = self._probe(backend)
+        return self._found[backend]
+
+    @staticmethod
+    def _probe(backend: str) -> bool:
+        if backend == 'libreoffice':
+            return _find_soffice() is not None
+        try:
+            if backend == 'word':
+                import winreg
+
+                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r'Word.Application\CLSID',
+                                    0, winreg.KEY_READ) as key:
+                    value, _ = winreg.QueryValueEx(key, None)
+                return isinstance(value, str) and bool(value.strip())
+            from importlib.util import find_spec
+
+            return find_spec(backend) is not None
+        except (ImportError, ValueError, OSError):
+            return False
+
+
+_SPREADSHEETS = {'.xlsx', '.xlsm'}
+_PRESENTATIONS = {'.pptx', '.pptm'}
+_LEGACY_OFFICE = {'.doc', '.xls', '.ppt'}
+_IMAGE_TARGETS = {'.png', '.jpg', '.bmp', '.gif', '.tiff', '.webp', '.ico'}
+
+
+def _mode_blocker(source: Path, extension: str, mode: str) -> ConversionBlocker | None:
+    suffix = source.suffix.lower()
+    if mode == 'text':
+        if suffix in _SPREADSHEETS and extension == '.pdf':
+            return ConversionBlocker(source, 'excel_pdf_mode')
+        if suffix in _PRESENTATIONS and extension in _IMAGE_TARGETS:
+            return ConversionBlocker(source, 'slides_image_mode')
+    return None
+
+
+def _conversion_blocker(source: Path, extension: str, mode: str,
+                        probes: _BackendProbes) -> ConversionBlocker | None:
+    blocked = _mode_blocker(source, extension, mode)
+    if blocked:
+        return blocked
+    suffix = source.suffix.lower()
+    required: tuple[str, ...] = ()
+    if suffix in _SPREADSHEETS:
+        if extension == '.pdf':
+            required = ('libreoffice',)
+        elif extension in ('.txt', '.csv'):
+            required = ('openpyxl',)
+    elif suffix in _PRESENTATIONS:
+        if extension in _IMAGE_TARGETS:
+            required = ('libreoffice',)
+        elif extension == '.pdf':
+            if mode == 'office':
+                required = ('libreoffice',)
+            elif mode == 'text' or not probes.has('libreoffice'):
+                required = ('pptx',)
+        elif extension in ('.txt', '.docx'):
+            required = ('pptx',)
+    elif extension == '.pdf':
+        if suffix == '.docx' and mode == 'auto':
+            required = ('docx2pdf', 'word')
+        elif suffix in _LEGACY_OFFICE or (mode == 'office' and suffix in ('.docx', '.html', '.htm')):
+            required = ('libreoffice',)
+    for backend in required:
+        if not probes.has(backend):
+            return ConversionBlocker(source, backend)
+    return None
+
+
+def conversion_blocker_message(code: str) -> str:
+    return {
+        'excel_pdf_mode': 'Excel to PDF is unavailable in Text mode; use --mode auto or --mode office (LibreOffice required).',
+        'slides_image_mode': 'Presentation images are unavailable in Text mode; use --mode auto or --mode office (LibreOffice required).',
+        'libreoffice': 'LibreOffice is required; install it or add soffice to PATH.',
+        'openpyxl': 'Install the openpyxl Python package.',
+        'pptx': 'Install the python-pptx Python package.',
+        'docx2pdf': 'Install the docx2pdf Python package.',
+        'word': 'Microsoft Word is not registered; install Word, use Text mode, or use Office mode with LibreOffice.',
+    }[code]
+
+
+def _require_backends(paths: Iterable[Path], extension: str, mode: str) -> None:
+    probes = _BackendProbes()
+    for source in paths:
+        blocker = _conversion_blocker(source, extension, mode, probes)
+        if blocker:
+            raise ConversionError(f'{source.name}: {conversion_blocker_message(blocker.code)}')
+
+
 def convert_file(
     source: str | Path,
     target: str,
@@ -783,7 +903,9 @@ def convert_file(
     """Convert one source file to ``target``, writing outputs next to it by default."""
     source_path = Path(source)
     dest_dir = Path(directory) if directory is not None else source_path.parent
-    return _convert_single(source_path, dest_dir, target, mode)
+    extension, resolved_mode = normalize_target(target), normalize_mode(mode)
+    _require_backends((source_path,), extension, resolved_mode)
+    return _convert_single(source_path, dest_dir, extension, resolved_mode)
 
 
 def convert_files(
@@ -802,7 +924,8 @@ def convert_files(
     if not paths:
         raise ConversionError("Select at least one file to convert")
     extension = normalize_target(target)
-    normalize_mode(mode)
+    mode = normalize_mode(mode)
+    _require_backends(paths, extension, mode)
     first_dir = Path(directory) if directory is not None else paths[0].parent
     if extension == ".pdf" and len(paths) > 1 and all(_is_image_source(p) for p in paths):
         from PIL import Image
@@ -825,69 +948,86 @@ def convert_files(
             for image in images:
                 image.close()
         return (ConversionOutcome(paths[0], (destination,)),)
-    return tuple(convert_file(path, extension, directory, mode) for path in paths)
+    return tuple(_convert_single(path, Path(directory) if directory is not None else path.parent,
+                                 extension, mode) for path in paths)
 
 
-def reachable_targets(sources: Iterable[str | Path], mode: str = "auto") -> tuple[str, ...]:
-    """Return targets every selected file can reach, in stable wheel order.
+def _targets_for_source(path: Path, mode: str, *, kind: FileKind | None = None) -> set[str]:
+    suffix = path.suffix.lower()
+    if suffix == '.zip':
+        return {'.extract'}
+    if suffix in _LEGACY_OFFICE:
+        return {'.pdf'} if mode != 'text' else set()
+    if suffix in ('.html', '.htm'):
+        return {'.pdf', '.txt'}
+    if kind is None:
+        kind = _source_kind(path)
+    if kind is FileKind.IMAGE:
+        return _IMAGE_TARGETS | {'.pdf'}
+    if kind is FileKind.PDF:
+        return {'.png', '.jpg', '.bmp', '.tiff'}
+    if kind in _TEXT_KINDS:
+        return {'.pdf', '.txt', '.docx'}
+    if kind is FileKind.DOCUMENT:
+        if suffix == '.docx':
+            return {'.pdf', '.txt'}
+        if suffix in _SPREADSHEETS:
+            return {'.csv', '.txt'} if mode == 'text' else {'.csv', '.txt', '.pdf'}
+        if suffix in _PRESENTATIONS:
+            targets = {'.pdf', '.txt'}
+            if mode != 'office':
+                targets.add('.docx')
+            if mode != 'text':
+                targets.update(('.png', '.jpg'))
+            return targets
+    return set()
 
-    The wheel hides targets that are impossible for the current selection; this
-    function computes the intersection so a mixed selection shows only safe,
-    shared targets. ``mode`` follows the same ``auto``/``text``/``office`` rules
-    as :func:`convert_file`.
-    """
+
+def reachable_targets(sources: Iterable[str | Path], mode: str = 'auto') -> tuple[str, ...]:
+    """List shared format tokens without checking backend availability."""
     paths = [Path(source) for source in sources]
     if not paths:
         return ()
-    resolved_mode = normalize_mode(mode)
-    per_file: list[set[str]] = []
+    mode = normalize_mode(mode)
+    per_file = []
     for path in paths:
-        suffix = path.suffix.lower()
-        if suffix == ".zip":
-            per_file.append({".extract"})
-            continue
-        if suffix in (".doc", ".xls", ".ppt"):
-            per_file.append({".pdf"} if resolved_mode != "text" else set())
-            continue
-        if suffix in (".html", ".htm"):
-            per_file.append({".pdf", ".txt"})
-            continue
         try:
-            kind = _source_kind(path)
+            per_file.append(_targets_for_source(path, mode))
         except (OSError, ConversionError):
             continue
-        if kind is FileKind.IMAGE:
-            per_file.append({".pdf", ".png", ".jpg", ".bmp", ".gif", ".tiff", ".webp", ".ico"})
-        elif kind is FileKind.PDF:
-            per_file.append({".png", ".jpg", ".bmp", ".tiff"})
-        elif kind in _TEXT_KINDS:
-            per_file.append({".pdf", ".txt", ".docx"})
-        elif kind is FileKind.DOCUMENT:
-            suffix = path.suffix.lower()
-            if suffix == ".docx":
-                per_file.append({".pdf", ".txt"})
-            elif suffix in (".xlsx", ".xlsm"):
-                targets = {".csv", ".txt"}
-                if resolved_mode in ("auto", "office"):
-                    targets.add(".pdf")
-                per_file.append(targets)
-            elif suffix in (".pptx", ".pptm"):
-                if resolved_mode == "text":
-                    per_file.append({".pdf", ".txt", ".docx"})
-                elif resolved_mode == "office":
-                    per_file.append({".pdf", ".png", ".jpg", ".txt"})
-                else:
-                    per_file.append({".pdf", ".png", ".jpg", ".txt", ".docx"})
-            else:
-                per_file.append(set())
-        else:
-            per_file.append(set())
-    if not per_file:
+    common = set.intersection(*per_file) if per_file else set()
+    return tuple(target for target, _, _ in TARGET_FORMATS if target in common)
+
+
+def conversion_options(sources: Iterable[str | Path], mode: str = 'auto'
+                       ) -> tuple[tuple[str, ConversionBlocker | None], ...]:
+    """List shared targets, with the first mode or dependency blocker for each."""
+    paths = tuple(Path(source) for source in sources)
+    if not paths:
         return ()
-    common = set(per_file[0])
-    for targets in per_file[1:]:
-        common &= targets
-    return tuple(ext for ext, _label, _group in TARGET_FORMATS if ext in common)
+    mode = normalize_mode(mode)
+    common = set(target_formats())
+    selected: list[tuple[Path, set[str]]] = []
+    for path in paths:
+        kind = _source_kind(path)
+        formats = {choice: _targets_for_source(path, choice, kind=kind) for choice in _CONVERSION_MODES}
+        common.intersection_update(set.union(*formats.values()))
+        selected.append((path, formats[mode]))
+    probes = _BackendProbes()
+    options = []
+    for target, _, _ in TARGET_FORMATS:
+        if target not in common:
+            continue
+        blocker = None
+        for path, allowed in selected:
+            if target not in allowed:
+                blocker = _mode_blocker(path, target, mode) or ConversionBlocker(
+                    path, 'legacy_pdf_mode' if target == '.pdf' else 'slides_docx_mode')
+                break
+        if blocker is None:
+            blocker = next((issue for path in paths if (issue := _conversion_blocker(path, target, mode, probes))), None)
+        options.append((target, blocker))
+    return tuple(options)
 
 
 __all__ = [

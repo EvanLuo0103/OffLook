@@ -11,6 +11,7 @@ import sys
 from types import ModuleType
 
 from offlook.core.errors import OffLookError
+from offlook.platforms.windows_launch import frozen_gui_executable
 
 
 @dataclass(frozen=True)
@@ -24,14 +25,17 @@ class PathUpdateResult:
 
 
 _INSTALL_HINT = "Reinstall using the current Python: py -m pip install --user --only-binary=:all: -e ."
+_INSTALLER_KEY = r'Software\OffLook\Installer'
+_OWNED_DIRECTORY = 'PathOwnedDirectory'
 
 
 def resolve_offlook_scripts_dir() -> Path:
-    """Resolve the unique existing offlook.exe from this interpreter's package record.
-
-    No guessed user Scripts directory or executable from PATH is accepted.
-    Missing, ambiguous, or stale installation metadata raises OffLookError.
-    """
+    """Resolve the bundle directory or the unique pip-recorded executable directory."""
+    gui = frozen_gui_executable()
+    if gui is not None:
+        if not gui.with_name('ol.exe').is_file():
+            raise OffLookError('ol.exe is missing; reinstall OffLook')
+        return gui.parent
     try:
         distribution = metadata.distribution("offlook")
         records = distribution.files
@@ -145,14 +149,65 @@ def add_offlook_to_user_path(*, registry_path: str = "Environment") -> PathUpdat
             merged, changed = _merge_path(latest, scripts_dir)
             if changed:
                 registry.SetValueEx(key, "Path", 0, value_type, merged)
+        if changed and getattr(sys, 'frozen', False) and registry_path == 'Environment':
+            with registry.CreateKeyEx(registry.HKEY_CURRENT_USER, _INSTALLER_KEY, 0,
+                                      registry.KEY_SET_VALUE) as owner:
+                registry.SetValueEx(owner, _OWNED_DIRECTORY, 0, registry.REG_SZ, str(scripts_dir))
         process_path, process_changed = _merge_path(os.environ.get("PATH", ""), scripts_dir)
         if process_changed:
             os.environ["PATH"] = process_path
     except (OSError, ValueError) as exc:
         raise OffLookError("Cannot change the user PATH; check registry access permissions") from exc
     broadcast_ok = _broadcast_environment_change()
-    resolved = shutil.which("offlook")
     conflicting_executable = None
-    if resolved is not None and _normalized_entry(resolved) != _normalized_entry(str(scripts_dir / "offlook.exe")):
-        conflicting_executable = Path(resolved)
+    for name in ('ol', 'offlook'):
+        resolved = shutil.which(name)
+        if resolved is not None and _normalized_entry(resolved) != _normalized_entry(str(scripts_dir / f'{name}.exe')):
+            conflicting_executable = Path(resolved)
+            break
     return PathUpdateResult(scripts_dir, changed, broadcast_ok, conflicting_executable)
+
+
+def _remove_owned_path(directory: Path) -> None:
+    registry = _registry()
+    try:
+        with registry.OpenKey(registry.HKEY_CURRENT_USER, _INSTALLER_KEY, 0,
+                              registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE) as owner:
+            owned, _ = registry.QueryValueEx(owner, _OWNED_DIRECTORY)
+            normalized = _normalized_entry(str(directory))
+            if not isinstance(owned, str) or _normalized_entry(owned) != normalized:
+                return
+            try:
+                with registry.OpenKey(registry.HKEY_CURRENT_USER, 'Environment', 0,
+                                      registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE) as key:
+                    value, value_type = _read_path(registry, key)
+                    entries = value.split(';')
+                    for index in range(len(entries) - 1, -1, -1):
+                        if _normalized_entry(entries[index]) == normalized:
+                            del entries[index]
+                            registry.SetValueEx(key, 'Path', 0, value_type, ';'.join(entries))
+                            break
+            except FileNotFoundError:
+                pass
+            registry.DeleteValue(owner, _OWNED_DIRECTORY)
+    except FileNotFoundError:
+        return
+    _broadcast_environment_change()
+
+
+def remove_frozen_install_integration() -> None:
+    """Uninstall only the PATH and Run entries owned by this frozen installation."""
+    from offlook.platforms.windows_startup import StartupManager
+
+    executable = frozen_gui_executable()
+    if executable is None:
+        raise OffLookError('Only the Windows installer can remove its integrations')
+    failures = []
+    for action, path in ((_remove_owned_path, executable.parent),
+                         (StartupManager().remove_if_executable, executable)):
+        try:
+            action(path)
+        except (OSError, OffLookError) as exc:
+            failures.append(exc)
+    if failures:
+        raise OffLookError('Some integration settings could not be removed') from failures[0]
