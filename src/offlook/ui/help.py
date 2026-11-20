@@ -20,7 +20,7 @@ The search includes subfolders but does not follow links or network folders. Dou
 In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook loads the folder and focuses the filename field; it does not run a search until you click "Search". A selected regular file or multiple items is an error, not a request to search the parent folder.
 
 File comparison
-In the "File comparison" card, click "Compare two files" and choose Old file and New file in the same window. They may be in different folders. In File Explorer or on the desktop, select exactly two local files and press Compare files (default: Ctrl+Alt+D). The shortcut sorts the paths to set the initial order; Swap files reverses it. No Git installation or repository is needed.
+In the "File comparison" card, click "Compare two files". In the Windows Open dialog, hold Ctrl and select exactly two files from the same folder, then click Open. You can also select two local files in File Explorer or on the desktop and press Compare files (default: Ctrl+Alt+D). Both methods sort the paths to set the initial order; Swap files reverses it. No Git installation or repository is needed.
 Compare plain text (such as TXT, Markdown, RST, CSV or code) and Word (.docx) body paragraphs and tables, even across formats. Each file is limited to 2,000,000 bytes and 20,000 lines; Word layout is not compared. Split and Unified show green + additions, red - deletions, and stronger highlighting within edited lines. DOCX preview still shows metadata only.
 
 Converting files
@@ -80,7 +80,7 @@ _HELP_ZH = """選擇要預覽的檔案
 在檔案總管中選取一個本機資料夾（或開啟資料夾且未選取任何項目），再按「檔案搜尋」快捷鍵（預設 Ctrl+Q）。OffLook 會載入該資料夾並把游標放到檔名欄，在你按「搜尋」之前不會真的開始搜尋。若選取的是單一檔案或多個項目，會視為錯誤，不會改成搜尋上層資料夾。
 
 檔案比對
-在「檔案比對」卡片按「比對兩個檔案」，在同一視窗選好舊檔案和新檔案；兩份檔案可位於不同資料夾。也可在檔案總管或桌面選取正好兩個本機檔案，再按檔案比對快捷鍵（預設 Ctrl+Alt+D）。快捷鍵依路徑排序，可用「交換檔案」反轉方向。不需要 Git 或儲存庫。
+在「檔案比對」卡片按「比對兩個檔案」，在 Windows 開啟檔案對話框按住 Ctrl，從同一資料夾選取正好兩個檔案，再按「開啟」。也可在檔案總管或桌面選取正好兩個本機檔案，再按檔案比對快捷鍵（預設 Ctrl+Alt+D）。兩種方式都依路徑排序，可用「交換檔案」反轉方向。不需要 Git 或儲存庫。
 支援 TXT、Markdown、RST、CSV、程式碼等純文字，以及 Word（.docx）正文段落和表格，可跨格式比對。每份檔案上限 2,000,000 位元組和 20,000 行；不比較 Word 版面。「並排」和「統一」視圖以綠色 + 標示新增、紅色 - 標示刪除，並加深顯示行內改動。DOCX 預覽仍僅顯示中繼資料。
 
 轉換檔案

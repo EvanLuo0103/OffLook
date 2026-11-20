@@ -423,21 +423,22 @@ class PreviewApplication:
         """Choose both paths in one window, then start the comparison."""
         if self.closing or self._comparison_picker_open or (self._diff_thread and self._diff_thread.is_alive()):
             return
-        from offlook.ui.compare_picker import pick_comparison_files
         if self.selection_mode == 'diff':
             self._cancel_selection()
         self.diff_status.set(tr('status.diff.choosing'))
         self._comparison_picker_open = True
         try:
-            paths = pick_comparison_files(self.root)
+            paths = filedialog.askopenfilenames(parent=self.root, title=tr('btn.compare_files'))
         finally:
             self._comparison_picker_open = False
         if self.closing:
             return
-        if paths is None:
+        if not paths:
             self.diff_status.set(tr('status.diff.cancelled'))
+        elif len(paths) != 2:
+            self.diff_status.set(tr('status.selection.two_files'))
         else:
-            self._start_comparison(*paths)
+            self._start_comparison(*sorted(paths, key=lambda p: (p.casefold(), p)))
 
 
     def _start_comparison(self, old_path, new_path):

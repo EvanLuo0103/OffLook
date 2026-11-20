@@ -133,7 +133,7 @@ def show_diff(parent: tk.Misc, comparison: FileComparison, *,
     ttk.Label(heading, text=tr('diff.heading', name=f'{old.name} → {new.name}'),
               style='Diff.Title.TLabel').pack(anchor='w')
     for key, path in (('old', old), ('new', new)):
-        ttk.Label(heading, text=f'{tr(f"compare_picker.{key}")}: {path}',
+        ttk.Label(heading, text=f'{tr(f"diff.{key}_file")}: {path}',
                   style='Diff.Card.Muted.TLabel', wraplength=round(640 * dpi / 96)).pack(anchor='w')
     toolbar = ttk.Frame(heading, style='Card.TFrame')
     toolbar.pack(fill='x', pady=(6, 0))
