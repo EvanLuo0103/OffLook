@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from itertools import groupby
 import tkinter as tk
 from tkinter import ttk
 
 from dataclasses import dataclass
 
-from offlook.core.file_comparison import DiffLine, FileComparison
+from offlook.core.file_comparison import DiffLine, FileComparison, _hunks, _unified_rows
 from offlook.ui.i18n import tr
 from offlook.ui.theme import COLORS, size_window, window_fonts
 from offlook.platforms.windows_dpi import window_dpi
@@ -60,44 +59,6 @@ def _split_rows(lines: tuple[DiffLine, ...]) -> tuple[SideBySideRow, ...]:
 def side_by_side_rows(comparison: FileComparison) -> tuple[SideBySideRow, ...]:
     """Align paired modifications and context without inventing source lines."""
     return _split_rows(comparison.lines)
-
-
-def _unified_rows(lines: tuple[DiffLine, ...]):
-    for is_context, group in groupby(lines, key=lambda line: line.kind == 'context'):
-        if is_context:
-            yield from group
-        else:
-            changed = list(group)
-            yield from (line for line in changed if line.old_line is not None)
-            yield from (line for line in changed if line.new_line is not None)
-
-
-@dataclass(frozen=True)
-class _Hunk:
-    start: int
-    stop: int
-    header: str
-
-
-def _hunks(lines: tuple[DiffLine, ...]) -> tuple[_Hunk, ...]:
-    ranges: list[tuple[int, int]] = []
-    old, new = [0], [0]
-    for i, line in enumerate(lines):
-        old.append(old[-1] + (line.old_line is not None))
-        new.append(new[-1] + (line.new_line is not None))
-        if line.kind == 'context':
-            continue
-        start, stop = max(0, i - 3), min(len(lines), i + 4)
-        if ranges and start <= ranges[-1][1]:
-            ranges[-1] = ranges[-1][0], stop
-        else:
-            ranges.append((start, stop))
-    hunks = []
-    for start, stop in ranges:
-        oc, nc = old[stop] - old[start], new[stop] - new[start]
-        os, ns = old[start] + bool(oc), new[start] + bool(nc)
-        hunks.append(_Hunk(start, stop, f'@@ -{os},{oc} +{ns},{nc} @@'))
-    return tuple(hunks)
 
 
 def _paint_line(widget: tk.Text, numbers: tuple[int | None, ...], kind: str, text: str,

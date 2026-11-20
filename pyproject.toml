@@ -18,6 +18,7 @@ dev = ["build", "twine", "setuptools>=77.0.3"]
 
 [project.scripts]
 offlook = "offlook.cli:main"
+ol = "offlook.cli:main"
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}

@@ -59,6 +59,10 @@ def _validate_file_path(path: str | Path) -> Path:
         raise FileAccessError("The file path must be a string or Path") from exc
     if not isinstance(raw, str) or not raw or "\x00" in raw:
         raise FileAccessError("The file path is empty or contains invalid characters")
+    if os.name == 'nt':
+        from offlook.platforms.windows_files import validate_local_file
+
+        return validate_local_file(raw)
     normalized = Path(_validate_local_path_string(raw))
     try:
         if normalized.is_symlink() or not normalized.is_file():
@@ -78,6 +82,15 @@ def _prepare_destination(destination: str | Path) -> Path:
         raise FileAccessError("The destination is empty or contains invalid characters")
     normalized = Path(_validate_local_path_string(raw))
     try:
+        if os.name == 'nt':
+            from offlook.platforms.windows_files import validate_local_folder
+
+            for ancestor in (normalized, *normalized.parents):
+                if _occupied(ancestor):
+                    validate_local_folder(ancestor)
+                    break
+            normalized.mkdir(parents=True, exist_ok=True)
+            return normalized
         if normalized.exists():
             if normalized.is_symlink() or not normalized.is_dir():
                 raise FileAccessError("The destination must be a local folder")
@@ -90,20 +103,32 @@ def _prepare_destination(destination: str | Path) -> Path:
     return normalized
 
 
-def _resolve_conflict(destination: Path, conflict: str) -> tuple[Path, str]:
-    """Choose a non-colliding destination name; return the path and its status."""
-    if conflict == "overwrite":
+def _occupied(path: Path) -> bool:
+    """A dangling link occupies a name just as an ordinary file does."""
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _resolve_conflict(source: Path, destination: Path, conflict: str) -> tuple[Path, str]:
+    """Choose or validate the destination without passing a directory to shutil."""
+    if not _occupied(destination):
         return destination, "proceed"
-    if conflict == "skip" and destination.exists():
+    if conflict == "skip":
         return destination, "skip"
-    if conflict == "rename" and destination.exists():
-        counter = 1
-        while destination.exists():
-            destination = destination.with_name(
-                f"{destination.stem} ({counter}){destination.suffix}"
-            )
-            counter += 1
-    return destination, "proceed"
+    if conflict == "overwrite":
+        _validate_file_path(destination)
+        if source.samefile(destination):
+            raise FileAccessError("Source and destination are the same file")
+        return destination, "proceed"
+    counter = 1
+    while True:
+        candidate = destination.with_name(f"{destination.stem} ({counter}){destination.suffix}")
+        if not _occupied(candidate):
+            return candidate, "proceed"
+        counter += 1
 
 
 def _transfer(
@@ -121,7 +146,7 @@ def _transfer(
     for path in paths:
         try:
             source = _validate_file_path(path)
-            target, decision = _resolve_conflict(dest_dir / source.name, conflict)
+            target, decision = _resolve_conflict(source, dest_dir / source.name, conflict)
             if decision == "skip":
                 results.append(TransferResult(source, target, "skipped", "A file with the same name exists"))
                 continue
@@ -193,7 +218,7 @@ def organize_by_kind(
             continue
         matches.append((path, kind))
     for kind in normalized_kinds:
-        (dest_root / kind.value).mkdir(parents=True, exist_ok=True)
+        _prepare_destination(dest_root / kind.value)
     results: list[TransferResult] = []
     for path, kind in matches:
         results.extend(move_files([path], dest_root / kind.value))

@@ -1,4 +1,4 @@
-"""Bounded local ZIP and 7z extraction with path traversal protection."""
+"""Bounded local ZIP extraction with path traversal protection."""
 
 from __future__ import annotations
 
@@ -100,9 +100,11 @@ def _extract_zip(source: Path, root: Path) -> tuple[Path, ...]:
 
 
 def extract_archive(source: Path, destination: Path) -> tuple[Path, ...]:
-    """Extract a ZIP or 7z archive to a new destination folder."""
+    """Extract a ZIP archive to a new destination folder."""
     source = Path(source)
     destination = Path(destination)
+    if source.suffix.lower() != ".zip":
+        raise ConversionError("Only ZIP archives can be extracted")
 
     if destination.exists():
         raise ConversionError(f"Extraction folder already exists: {destination}")
@@ -112,8 +114,4 @@ def extract_archive(source: Path, destination: Path) -> tuple[Path, ...]:
     except OSError as exc:
         raise ConversionError(f"Cannot create extraction folder: {exc}") from exc
 
-    suffix = source.suffix.lower()
-    if source.suffix.lower() == ".zip":
-        return _extract_zip(source, destination)
-
-    raise ConversionError("Only ZIP archives can be extracted")
+    return _extract_zip(source, destination)

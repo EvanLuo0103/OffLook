@@ -1,6 +1,6 @@
-# OffLook API quick start
+# OffLook Python API reference
 
-Minimal interfaces for contributors. Keep previews, comparisons, and local extension callbacks offline; only an explicitly run AI assistant contacts its configured service. Do not read files or run time-consuming work in Tk callbacks. External plugins are not automatically discovered or executed.
+Interfaces for Python integrations and contributors. Do not read files or run time-consuming work in Tk callbacks. External plugins are not automatically discovered or executed. For GUI setup and command syntax, see the [user guide](getting-started.md).
 
 ## Create a context and identify files
 
@@ -11,6 +11,10 @@ info = FileTypeDetector().detect("README.md")
 print(info.kind.value, info.path, info.size_bytes)
 ```
 
+`FileInfo` contains `path`, `kind`, `size_bytes`, `modified_time_ns`, `extension`, `encoding`, and `encoding_confidence`. Detection synchronously reads up to 64 KiB and accepts only local regular files. A file's detected kind does not guarantee that its contents can be previewed.
+
+## Search and filter files
+
 To search a local folder recursively without reading file contents:
 
 ```python
@@ -20,12 +24,12 @@ results = find_files("C:/Documents", filename="report", kind=FileKind.PDF)
 
 `filter_files` is the multi-select companion. A file must match the optional case-insensitive `filename` substring **and** each nonempty filter group: any kind in `kinds` **and** any suffix in `extensions`. Within a group, values are alternatives. An empty group imposes no restriction. Both functions classify by extension without reading contents, skip symbolic links, and skip inaccessible subfolders.
 
+Both GUI search views call `filter_files`. See the [command-line reference](getting-started.md#7-command-line-reference) for the distinct `search` and `filter` command syntax.
+
 ```python
 from offlook.core import FileKind, filter_files
 results = filter_files("C:/Documents", kinds=[FileKind.PDF, FileKind.IMAGE])
 ```
-
-FileInfo contains path, kind, size_bytes, modified_time_ns, extension, encoding, and encoding_confidence. Detection synchronously reads up to 64 KiB and accepts only local regular files. Kinds are image/text/markdown/pdf/code/csv/document/binary; document and binary classifications display metadata rather than parsed contents.
 
 ## Compare two local files
 
@@ -38,7 +42,7 @@ for line in comparison.lines:
     print(line.kind, line.old_line, line.new_line, line.text)
 ```
 
-`compare_files(old_path, new_path, *, max_bytes=2_000_000)` reads and parses both local files synchronously without rewriting them or creating intermediate files. Run it off the Tk thread. It compares only the two supplied paths, not Git HEAD, and has no CLI subcommand.
+`compare_files(old_path, new_path, *, max_bytes=2_000_000)` reads and parses both local files synchronously without rewriting them or creating intermediate files. Run it off the Tk thread. It compares only the two supplied paths, not Git HEAD. The CLI counterpart is [`compare`](getting-started.md#7-command-line-reference).
 
 - Plain text is decoded strictly as UTF-8 unless a UTF-8, UTF-16, or UTF-32 byte-order mark specifies the encoding. This includes TXT, Markdown, RST, CSV/TSV, code, and extensionless text. Markdown and HTML are compared as source, not rendered output. Binary data and unsupported formats such as PDF, legacy `.doc`, and spreadsheets are rejected.
 - Word `.docx` comparison uses the installed `python-docx` dependency, not Word or LibreOffice, and can be mixed with plain text. It extracts top-level body paragraphs and table rows in document order; physical cells are separated by tabs and cell line breaks become spaces. Nested tables and content outside the main body, such as headers, footers, and comments, are not extracted. Layout and images are not compared. DOCX line numbers refer to extracted text rather than Word pages.
@@ -64,7 +68,7 @@ if __name__ == "__main__":
     raise SystemExit(launch_preview("README.md", always_on_top=True))
 ```
 
-Call from the main thread; an exit code is returned when the window closes. Do not launch this application inside a host with an existing Tk instance. The GUI renders in a terminable spawn process and ignores stale requests.
+Call from the main thread; an exit code is returned when the window closes. Do not launch this application inside a host with an existing Tk instance. The GUI uses a terminable spawn process per request and ignores stale responses. Explorer selection still runs separately from rendering, without loading the renderer registry in the selection child.
 
 ## Register contributor callbacks
 
@@ -90,24 +94,24 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | --- | --- |
 | max_file_size_bytes | 10,485,760 bytes |
 | preview_timeout_seconds | 5 seconds |
-| hotkey_enabled | True; shared enable gate for Preview, Search files, File comparison, and Convert files |
+| hotkey_enabled | True; shared gate for all six global shortcuts |
 | hotkey | Ctrl+Space; Preview shortcut |
-| search_hotkey | Ctrl+Q; prepares a local folder for Search files without starting a search |
+| search_hotkey | Ctrl+Q; opens the main Search & filter page with the selected folder, without scanning |
 | diff_hotkey | Ctrl+Alt+D; Compare files shortcut |
 | convert_hotkey | Alt+C; opens the **Convert to** dropdown dialog |
+| filter_hotkey | Ctrl+Alt+F; opens only the Search & filter quick window for a valid Explorer folder, without scanning |
+| ai_hotkey | Ctrl+Alt+Shift+A; opens only the AI assistant quick window, without requiring a selection or starting a run |
 | convert_mode | `auto`; also `text` and `office`. Backend choice depends on the source and target. |
 | always_on_top | False |
 | supported_extensions | Tuple of supported extensions; an empty collection shows metadata only |
 | ai_enabled / ai_base_url / ai_api_key / ai_model | `False` / `https://api.deepseek.com` / `""` / `deepseek-chat`. `ai_enabled` is a saved preference, not a runtime gate. The key is saved in plaintext in JSON. |
 | language | en; also zh. Selects the interface language; `offlook.ui.i18n.tr` reads it. |
 
-The four combinations are canonicalized with `parse_hotkey` and must be pairwise distinct even when `hotkey_enabled` is false. Invalid syntax raises `ConfigError` with its `HotkeyError` cause; duplicate errors name both conflicting fields. Missing shortcut fields in old JSON use defaults without rewriting the file; existing collisions are configuration errors, not silently reset. These combinations are defaults, not permanently reserved keys.
+All six combinations are canonicalized with `parse_hotkey` and must be distinct even when `hotkey_enabled` is false. Loading an older configuration does not rewrite it. For a missing `filter_hotkey`, the first unused candidate is chosen from `Ctrl+Alt+F`, `Ctrl+Alt+Shift+F`, `Ctrl+Alt+G`, `Ctrl+Alt+Shift+G`, `Ctrl+Alt+J`, `Ctrl+Alt+Shift+J`. Then, if `ai_hotkey` is missing, the first unused candidate is chosen from `Ctrl+Alt+Shift+A`, `Ctrl+Alt+A`, `Ctrl+Alt+Shift+I`, `Ctrl+Alt+I`, `Ctrl+Alt+Shift+K`, `Ctrl+Alt+K`. Existing explicit bindings are preserved; invalid or duplicate values raise `ConfigError`. OS registration conflicts do not trigger a different binding.
 
-The resident GUI's **Enable global shortcuts** switch immediately persists the shared gate. Its Preview / Search files / Compare files / Convert files selector maintains separate drafts; **Apply** saves only the selected key. While enabled, a replacement is registered before saving, and the old active key remains on registration or persistence failure. While disabled, Apply only saves. External updates reconcile only shortcut fields and the shared gate; other settings do not rebind keys. Each action registers independently, and statuses distinguish configured keys from active registrations. An external cross-action swap requires an intermediate unused combination rather than an unregister-first swap. `launch_preview` and the single-file CLI command register no global shortcuts.
+In a running main window, `config.changed` reconciles the shortcut fields and shared gate; external JSON edits are not watched. `launch_preview` does not register global shortcuts. See [shortcut settings](getting-started.md#4-customize-global-shortcuts) for recording and registration behavior.
 
-`offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes its text in place without focusing it and preserves its scroll position. Both accept a mapping with `preview`, `search`, `diff`, and `convert` keys containing the rendered registration statuses.
-
-`py -m offlook --config '<path>' diagnose-search-shortcut` loads the specified config before creating only the configured search listener and Explorer selection provider; it creates no GUI. It tests `search_hotkey` even with the shared gate disabled, without saving settings. Release that key in the main app and other instances first. Ctrl+C exits the diagnostic with code 0; invalid or missing explicit config exits with code 2.
+`offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes it without focusing it and preserves its scroll position. OffLook supplies `preview`, `search`, `diff`, `convert`, `filter`, and `ai` with their rendered registration statuses. An omitted `ai` entry is shown as not registered.
 
 `events.subscribe(topic, callback)` returns an unsubscribe function. The callback receives Event(topic, payload) synchronously on the publishing thread.
 
@@ -118,7 +122,7 @@ The resident GUI's **Enable global shortcuts** switch immediately persists the s
 | preview.opened | file_info, once for the first frame |
 | preview.failed | path, code, message |
 
-## Convert, filter, and manage files
+## Convert and manage files
 
 Conversion runs locally using Pillow and pypdfium2, with document backends where needed. `convert_file(source, target, directory=None, mode="auto")` returns one `ConversionOutcome` with `source` and `outputs` (a tuple of output paths). `convert_files(sources, target, directory=None, mode="auto")` returns a tuple of outcomes. Multiple images targeting PDF produce one combined document named after the first source and one outcome. Other batches convert files individually.
 
@@ -133,19 +137,9 @@ outcome = convert_file("a.png", "pdf")
 print(outcome.outputs)
 ```
 
-`target_formats()` lists recognized tokens, not implemented conversions for every source: `.xlsx` does not promise Excel output, and `.extract` is the ZIP extraction operation, not an output suffix. `reachable_targets(sources, mode="auto")` intersects the targets for all sources, but does not check that the required backends are installed. The GUI uses it for the **Convert to** dropdown. With the shortcut, the dialog opens without restoring the main window and keeps progress, output paths, or errors in the same window.
+`target_formats()` lists tokens, not implemented conversions for every source: `.xlsx` does not promise Excel output, and `.extract` unpacks a ZIP into a new folder. `reachable_targets(sources, mode="auto")` returns the shared targets offered by the dialog, not a comprehensive list of direct conversions or a backend availability check.
 
-`convert_file`, `convert_files`, and `reachable_targets` accept `mode="auto"`, `"text"`, or `"office"`. The backend depends on the source and target:
-
-| Source | Outputs and backend behavior |
-| --- | --- |
-| Images, PDFs, text | Images convert to other image formats or PDF; PDFs convert to images; text, Markdown, code, and CSV convert to PDF, TXT, or DOCX. These operations do not require Office. |
-| DOCX | TXT and `text`-mode PDF use paragraphs via `python-docx`, an installed runtime dependency. `auto`-mode PDF uses Microsoft Word with optional `docx2pdf` and does not fall back automatically; `office`-mode PDF uses LibreOffice. |
-| XLSX / XLSM | CSV and TXT require optional `openpyxl`; PDF requires LibreOffice in `auto` or `office` mode. |
-| PPTX / PPTM | `text`-mode PDF, TXT, and DOCX use slide text via optional `python-pptx`. PNG/JPEG and layout-preserving PDF require LibreOffice. For PDF, `auto` uses LibreOffice when available and slide text otherwise. |
-| Legacy `.doc`, `.xls`, `.ppt` | PDF requires LibreOffice. The dialog offers it in `auto` or `office` mode. |
-| HTML | TXT uses extracted text. PDF uses LibreOffice in `office` mode or when available in `auto`; otherwise it uses extracted text. |
-| ZIP | `.extract` unpacks the archive into a new folder. |
+`convert_file`, `convert_files`, and `reachable_targets` accept `mode="auto"`, `"text"`, or `"office"`. See [conversion formats and backends](getting-started.md#convert-files) for the source/target matrix and direct-call exception for legacy Office files.
 
 ```python
 outcome = convert_file("deck.pptx", "pdf", mode="office")  # requires LibreOffice
@@ -162,6 +156,8 @@ results = organize_by_kind("C:/Docs", "C:/Archive", kinds=[FileKind.PDF])
 ## AI assistant port
 
 The provider-neutral assistant is opt-in: creating a provider or saving AI settings does not contact the service. The built-in `OpenAiCompatibleProvider` uses the standard library to call the configured OpenAI-compatible `/chat/completions` endpoint (for example, DeepSeek, OpenAI, or a self-hosted server).
+
+The [AI page and quick window](getting-started.md#ai-file-assistant) share one task; neither opening a window nor saving connection settings invokes the provider.
 
 ```python
 from offlook.core import OpenAiCompatibleProvider, run_instruction, default_tools
@@ -196,5 +192,6 @@ RenderRequest's max_width/max_height are target dimensions in physical pixels. P
 
 ## System integration and errors
 
-`StartupManager` changes the current user's sign-in startup setting only when explicitly toggled. The PATH service `add_offlook_to_user_path()` appends only the current installation's Scripts directory and never changes the machine PATH. Closing the resident main window hides it only when the system tray is available; exiting releases resources. `--background` does not open a console.
-`OffLookError` subclasses include `ConfigError`, `FileAccessError`, `PreviewError`, `HotkeyError`, `ExtensionError`, `ConversionError`, and `AiError`. CLI exit codes are `0` for success, `1` for preview failure, `2` for usage, configuration, platform, or initialization failure, and `130` for an interruption in the Tk event loop. The search-shortcut diagnostic exits with `0` on Ctrl+C. The background process is not a permission sandbox; third-party callbacks must enforce the offline boundary themselves.
+`StartupManager` manages the current user's sign-in startup setting. `add_offlook_to_user_path()` adds only the current installation's Scripts directory to the user PATH. For command behavior and exit codes, see the [command-line reference](getting-started.md#7-command-line-reference).
+
+`OffLookError` subclasses include `ConfigError`, `FileAccessError`, `PreviewError`, `HotkeyError`, `ExtensionError`, `ConversionError`, and `AiError`.

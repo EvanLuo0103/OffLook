@@ -40,6 +40,10 @@ def _validate_folder(folder: str | Path) -> Path:
         raise FileAccessError("Alternate data stream paths are not allowed")
     try:
         normalized = Path(ntpath.abspath(raw) if os.name == "nt" else os.path.abspath(raw))
+        if os.name == 'nt':
+            from offlook.platforms.windows_files import validate_local_folder
+
+            return validate_local_folder(normalized)
         if not normalized.is_dir():
             raise FileAccessError("Select an existing folder")
     except (OSError, ValueError) as exc:
@@ -60,6 +64,11 @@ def _iter_files(root: Path, needle: str) -> Iterable[Path]:
     Does not read file contents, follow symlinks/reparse points, or traverse
     directories that cannot be inspected.
     """
+    reject_attributes = 0
+    if os.name == 'nt':
+        from offlook.platforms.windows_files import _DEVICE, _REJECT_ATTRIBUTES
+
+        reject_attributes = _DEVICE | _REJECT_ATTRIBUTES
     pending = [root]
     while pending:
         current = pending.pop()
@@ -71,7 +80,9 @@ def _iter_files(root: Path, needle: str) -> Iterable[Path]:
             continue
         for entry in entries:
             try:
-                if entry.is_symlink():
+                if entry.is_symlink() or (
+                    reject_attributes and entry.stat(follow_symlinks=False).st_file_attributes & reject_attributes
+                ):
                     continue
                 if entry.is_dir(follow_symlinks=False):
                     pending.append(Path(entry.path))

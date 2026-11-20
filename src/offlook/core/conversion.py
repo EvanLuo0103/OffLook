@@ -116,12 +116,15 @@ class ConversionOutcome:
 def _unique_path(directory: Path, stem: str, extension: str) -> Path:
     """Return a non-colliding destination path inside ``directory``."""
     directory.mkdir(parents=True, exist_ok=True)
-    candidate = directory / f"{stem}{extension}"
-    counter = 1
-    while candidate.exists():
-        candidate = directory / f"{stem} ({counter}){extension}"
+    counter = 0
+    while True:
+        suffix = f" ({counter})" if counter else ""
+        candidate = directory / f"{stem}{suffix}{extension}"
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            return candidate
         counter += 1
-    return candidate
 
 
 def _source_kind(path: Path) -> FileKind:
@@ -468,13 +471,16 @@ def _office_convert(source: Path, directory: Path, convert_to: str, target_exten
     soffice = _require_soffice()
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="offlook-soffice-") as temporary:
-        completed = subprocess.run(
-            [
-                soffice, "--headless", "--norestore", "--convert-to", convert_to,
-                "--outdir", temporary, str(source),
-            ],
-            capture_output=True, timeout=300,
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    soffice, "--headless", "--norestore", "--convert-to", convert_to,
+                    "--outdir", temporary, str(source),
+                ],
+                capture_output=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ConversionError("LibreOffice conversion timed out") from exc
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or b"").decode("utf-8", "replace").strip()
             raise ConversionError(f"LibreOffice conversion failed{': ' + detail if detail else ''}")
@@ -590,7 +596,7 @@ def _convert_single(source: Path, directory: Path, target: str, mode: str = "aut
     outputs: tuple[Path, ...] = ()
     if extension == ".extract":
         if suffix != ".zip":
-            raise ConversionError("Extract archive is available only for ZIP and 7z files")
+            raise ConversionError("Only ZIP archives can be extracted")
         from .archive_extract import extract_archive
 
         destination = _unique_path(directory, source.stem, "_extracted")

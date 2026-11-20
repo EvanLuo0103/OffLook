@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import multiprocessing
 import pickle
 import queue
+import sys
 import threading
 import time
 from typing import Any
@@ -93,6 +94,29 @@ def _execute_request(request: object, renderers: dict[FileKind, type[Renderer]])
     return SelectionResult(path, reason)
 
 
+def _open_windows_writer(handle: int) -> Any:
+    from multiprocessing.connection import PipeConnection
+
+    return PipeConnection(handle, readable=False)
+
+
+class _WindowsSpawnWriter:
+    """Give the spawned process its writer handle before it starts unpickling.
+
+    Pickling PipeConnection directly leaves a duplicate in the parent until
+    the child steals it. Canceling before unpickle would keep recv_bytes alive.
+    """
+
+    def __init__(self, connection: Any) -> None:
+        self.connection = connection
+
+    def __reduce__(self):
+        from multiprocessing.context import get_spawning_popen
+
+        popen = get_spawning_popen()
+        return _open_windows_writer, (popen.duplicate_for_child(self.connection.fileno()),)
+
+
 def _worker_target(connection: Any, request: object, renderers: dict[FileKind, type[Renderer]]) -> None:
     """Send exactly one bounded pickle response and always close the child pipe."""
     response = {"request_id": request.request_id, "data": None, "code": None, "message": ""}
@@ -115,12 +139,14 @@ def _worker_target(connection: Any, request: object, renderers: dict[FileKind, t
         connection.close()
 
 
-def _receive(connection: Any, results: queue.Queue) -> None:
+def _receive(connection: Any, results: queue.Queue, wake: threading.Event) -> None:
     """Read one bounded complete message off the supervisor/UI threads."""
     try:
         results.put_nowait((True, connection.recv_bytes(maxlength=MAX_PREVIEW_PAYLOAD_BYTES)))
     except Exception as exc:
         results.put_nowait((False, f"Worker process communication failed: {type(exc).__name__}"))
+    finally:
+        wake.set()
 
 
 @dataclass
@@ -218,7 +244,10 @@ class WorkerRunner:
     def _start(self, generation: int, request: object) -> _Active | None:
         """Create one fresh pipe/process; report startup failure with no leaked handles."""
         reader, writer = self._context.Pipe(duplex=False)
-        process = self._context.Process(target=_worker_target, args=(writer, request, self._renderers), name="offlook-preview")
+        child_writer = _WindowsSpawnWriter(writer) if sys.platform == 'win32' else writer
+        renderers = self._renderers if isinstance(request, RenderRequest) else {}
+        process = self._context.Process(target=_worker_target, args=(child_writer, request, renderers),
+                                        name="offlook-preview")
         deadline = time.monotonic() + request.config.preview_timeout_seconds
         try:
             process.start()
@@ -234,7 +263,8 @@ class WorkerRunner:
             return None
         writer.close()
         received: queue.Queue = queue.Queue(maxsize=1)
-        receiver = threading.Thread(target=_receive, args=(reader, received), name="offlook-receiver", daemon=True)
+        receiver = threading.Thread(target=_receive, args=(reader, received, self._wake),
+                                    name="offlook-receiver", daemon=True)
         receiver.start()
         return _Active(generation, request, process, reader, receiver, received, deadline)
 
@@ -247,8 +277,8 @@ class WorkerRunner:
         if process.is_alive():
             process.kill()
             process.join()
-        # The parent write end was closed at start, so reaping the sole writer
-        # guarantees that recv_bytes either completes or sees EOF.
+        # On Windows the duplicate already belongs to the child, even if it
+        # was terminated during bootstrap. The parent closed its own writer.
         active.receiver.join()
         active.connection.close()
         process.close()
@@ -289,6 +319,11 @@ class WorkerRunner:
                 if closing:
                     break
                 if pending is not None:
+                    # Reaping the previous process may have let a newer request arrive.
+                    with self._lock:
+                        obsolete = self._closing or pending[0] != self._generation
+                    if obsolete:
+                        continue
                     active = self._start(*pending)
                 if active is not None:
                     if time.monotonic() >= active.deadline:
@@ -314,7 +349,7 @@ class WorkerRunner:
                             else:
                                 self._deliver(active.generation, active.request, code="worker_failed", message=payload)
                             active = None
-                self._wake.wait(0.01 if active is not None else 0.1)
+                self._wake.wait(None if active is None else max(0.0, active.deadline - time.monotonic()))
         finally:
             if active is not None:
                 self._dispose(active, terminate=True)

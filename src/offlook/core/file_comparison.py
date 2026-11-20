@@ -1,9 +1,11 @@
 """Bounded, local line comparison for plain text and Word documents."""
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from io import BytesIO
+from itertools import groupby
 import os
 from pathlib import Path
 from zipfile import ZipFile
@@ -43,6 +45,44 @@ class FileComparison:
     new_path: Path
     lines: tuple[DiffLine, ...]
     changed: bool
+
+
+def _unified_rows(lines: tuple[DiffLine, ...]) -> Iterator[DiffLine]:
+    for is_context, group in groupby(lines, key=lambda line: line.kind == 'context'):
+        if is_context:
+            yield from group
+        else:
+            changed = list(group)
+            yield from (line for line in changed if line.old_line is not None)
+            yield from (line for line in changed if line.new_line is not None)
+
+
+@dataclass(frozen=True)
+class _Hunk:
+    start: int
+    stop: int
+    header: str
+
+
+def _hunks(lines: tuple[DiffLine, ...]) -> tuple[_Hunk, ...]:
+    ranges: list[tuple[int, int]] = []
+    old, new = [0], [0]
+    for i, line in enumerate(lines):
+        old.append(old[-1] + (line.old_line is not None))
+        new.append(new[-1] + (line.new_line is not None))
+        if line.kind == 'context':
+            continue
+        start, stop = max(0, i - 3), min(len(lines), i + 4)
+        if ranges and start <= ranges[-1][1]:
+            ranges[-1] = ranges[-1][0], stop
+        else:
+            ranges.append((start, stop))
+    hunks = []
+    for start, stop in ranges:
+        oc, nc = old[stop] - old[start], new[stop] - new[start]
+        os, ns = old[start] + bool(oc), new[start] + bool(nc)
+        hunks.append(_Hunk(start, stop, f'@@ -{os},{oc} +{ns},{nc} @@'))
+    return tuple(hunks)
 
 
 def _byte_limit(path: Path, max_bytes: int) -> PreviewError:
@@ -250,3 +290,18 @@ def compare_files(old_path: str | Path, new_path: str | Path, *, max_bytes: int 
     old = _read_comparison_lines(old_path, max_bytes=max_bytes)
     new = _read_comparison_lines(new_path, max_bytes=max_bytes)
     return FileComparison(old_path, new_path, _compare_text(old, new), old != new)
+
+
+def iter_unified_diff(comparison: FileComparison) -> Iterator[str]:
+    """Yield unified diff lines without terminators or terminal formatting."""
+    if not comparison.changed:
+        return
+    yield f'--- {comparison.old_path}'
+    yield f'+++ {comparison.new_path}'
+    for hunk in _hunks(comparison.lines):
+        yield hunk.header
+        for line in _unified_rows(comparison.lines[hunk.start:hunk.stop]):
+            prefix = ' ' if line.kind == 'context' else '-' if line.old_line is not None else '+'
+            yield prefix + line.text
+            if line.no_newline:
+                yield r'\ No newline at end of file'

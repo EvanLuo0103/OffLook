@@ -42,6 +42,8 @@ def _validate_local_path(path: str | Path, *, directory: bool) -> Path:
     if os.name != "nt":
         raise FileAccessError(f"OffLook currently supports only local Windows {subject}s")
     try:
+        import pywintypes
+        import win32api
         import win32file
 
         root = drive + "\\"
@@ -55,8 +57,15 @@ def _validate_local_path(path: str | Path, *, directory: bool) -> Path:
                 components.append(current)
         final_attributes = 0
         for index, component_path in enumerate(components):
-            attributes = win32file.GetFileAttributes(component_path)
+            try:
+                attributes = win32file.GetFileAttributes(component_path)
+            except pywintypes.error as exc:
+                if directory and exc.winerror in (2, 3):
+                    raise FileAccessError("Select an existing folder") from exc
+                raise
             if attributes == -1 or attributes == 0xFFFFFFFF:
+                if directory and win32api.GetLastError() in (2, 3):
+                    raise FileAccessError("Select an existing folder")
                 raise FileAccessError(f"Cannot read {subject} path attributes")
             if attributes & _REJECT_ATTRIBUTES:
                 raise FileAccessError("Reparse points, offline files, and paths requiring cloud recall are rejected")

@@ -39,16 +39,17 @@ def build_filter_checks(parent: tk.Misc, variables: Mapping[FileKind, tk.Boolean
 
 
 def start_filter_scan(folder: str, kinds: tuple[FileKind, ...],
-                      out: Queue[tuple[tuple[SearchResult, ...] | None, str | None]]) -> threading.Thread:
+                      out: Queue[tuple[tuple[SearchResult, ...] | None, str | None]], *,
+                      filename: str = '') -> threading.Thread:
     def work() -> None:
-        from offlook.core import filter_files
-
         try:
-            out.put((filter_files(folder, kinds=kinds), None))
+            from offlook.core import filter_files
+
+            out.put((filter_files(folder, filename=filename, kinds=kinds), None))
         except OffLookError as exc:
             out.put((None, str(exc)))
         except Exception as exc:
-            out.put((None, f'File filtering failed: {type(exc).__name__}: {exc}'))
+            out.put((None, f'File search failed: {type(exc).__name__}: {exc}'))
 
     thread = threading.Thread(target=work, name='OffLookFilter', daemon=True)
     thread.start()
@@ -66,11 +67,11 @@ class FilterDialog(tk.Toplevel):
         self._thread: threading.Thread | None = None
         self._results: Queue[tuple[tuple[SearchResult, ...] | None, str | None]] = Queue()
         self._offlook_font_prefix = 'Filter'
-        self.title(self._text('card.filter'))
+        self.title(self._text('card.search_filter'))
         self.configure(background=COLORS['background'])
         dpi = window_dpi(self.winfo_id())
         window_fonts(self, dpi)
-        size_window(self, dpi, 600, 440, 450, 320)
+        size_window(self, dpi, 600, 490, 450, 360)
 
         body = ttk.Frame(self, style='Card.TFrame', padding=round(16 * dpi / 96))
         body.pack(fill='both', expand=True)
@@ -78,12 +79,18 @@ class FilterDialog(tk.Toplevel):
         directory.insert(0, str(self.folder))
         directory.configure(state='readonly')
         directory.pack(fill='x')
+        name_row = ttk.Frame(body, style='Card.TFrame')
+        name_row.pack(fill='x', pady=4)
+        ttk.Label(name_row, text=self._text('label.search_name'), style='Filter.Card.Muted.TLabel').pack(side='left', padx=(0, 8))
+        self.name_entry = ttk.Entry(name_row, style='Filter.TEntry')
+        self.name_entry.pack(side='left', fill='x', expand=True)
+        ttk.Label(body, text=self._text('label.search_types'), style='Filter.Card.Muted.TLabel').pack(anchor='w')
         self.kind_vars = {kind: tk.BooleanVar(self, value=kind in kinds) for kind in _FILTER_KIND_KEYS}
         self._checks = build_filter_checks(body, self.kind_vars, text=self._text, style='Filter.TCheckbutton')
-        self.apply_button = ttk.Button(body, text=self._text('btn.apply_filter'),
+        self.apply_button = ttk.Button(body, text=self._text('btn.search'),
                                        style='Filter.Accent.TButton', command=self._apply)
         self.apply_button.pack(anchor='w', pady=(0, 6))
-        self.status = tk.StringVar(self, value=self._text('status.filter.ready'))
+        self.status = tk.StringVar(self, value=self._text('status.search.ready'))
         status = ttk.Label(body, textvariable=self.status, style='Filter.Card.TLabel', justify='left')
         status.pack(fill='x', pady=(0, 6))
         status.bind('<Configure>', lambda event: status.configure(wraplength=max(1, event.width)))
@@ -93,6 +100,7 @@ class FilterDialog(tk.Toplevel):
         self.tree = build_result_table(body, self._open_clicked, scale=dpi / 96,
                                        style='Filter.Treeview', text=self._text, expand=True)
         self.apply_button.bind('<Return>', self._apply_from_key)
+        self.name_entry.bind('<Return>', self._apply_from_key)
         self.tree.bind('<Return>', self._open_selected)
         self.bind('<Map>', self._mapped)
         self.bind('<Escape>', self._escape)
@@ -116,7 +124,7 @@ class FilterDialog(tk.Toplevel):
             self._focus_control()
 
     def _focus_control(self) -> None:
-        (self.close_button if self.busy else self.apply_button).focus_force()
+        (self.close_button if self.busy else self.name_entry).focus_force()
 
     def _apply_from_key(self, _event: tk.Event) -> str:
         self.apply_button.invoke()
@@ -128,15 +136,15 @@ class FilterDialog(tk.Toplevel):
         kinds = tuple(kind for kind, variable in self.kind_vars.items() if variable.get())
         fill_results(self.tree, ())
         self._set_busy_controls(True)
-        self.status.set(self._text('status.filter.running'))
+        self.status.set(self._text('status.search.running'))
         try:
-            self._thread = start_filter_scan(str(self.folder), kinds, self._results)
+            self._thread = start_filter_scan(str(self.folder), kinds, self._results, filename=self.name_entry.get())
         except RuntimeError as exc:
             self._set_busy_controls(False)
-            self.status.set(f'File filtering failed: {type(exc).__name__}: {exc}')
+            self.status.set(f'File search failed: {type(exc).__name__}: {exc}')
 
     def _set_busy_controls(self, busy: bool) -> None:
-        for control in (self.apply_button, *self._checks):
+        for control in (self.name_entry, self.apply_button, *self._checks):
             control.state(['disabled' if busy else '!disabled'])
 
     def poll(self) -> None:
@@ -150,7 +158,7 @@ class FilterDialog(tk.Toplevel):
             return
         matches = rows or ()
         fill_results(self.tree, matches, label_kind=lambda kind: self._text(_FILTER_KIND_KEYS[kind]))
-        self.status.set(self._text('status.filter.found', n=len(matches)))
+        self.status.set(self._text('status.search.found', n=len(matches)))
 
     def _open_clicked(self, event: tk.Event) -> None:
         self._open_row(self.tree.identify_row(event.y))

@@ -16,6 +16,7 @@ from offlook.core.files import FileKind
 from offlook.core.hotkeys import parse_hotkey
 from offlook.preview.models import RenderRequest
 from offlook.preview.worker import WorkerRunner
+from offlook.ui.ai_task import AiTaskView
 from offlook.ui.file_results import build_result_table, fill_results
 from offlook.ui.filter_dialog import FilterDialog, build_filter_checks, start_filter_scan
 from offlook.ui.i18n import language, normalize_language, set_language, tr, tr_in
@@ -30,8 +31,7 @@ _MAIN_MIN_SIZE = (740, 560)
 
 _MAIN_PAGES = (
     ('tools', 'page.tools'),
-    ('search', 'card.search'),
-    ('filter', 'card.filter'),
+    ('search', 'card.search_filter'),
     ('ai', 'card.ai'),
     ('settings', 'page.settings'),
 )
@@ -44,19 +44,6 @@ def _can_scroll(widget) -> bool:
     except (tk.TclError, AttributeError, TypeError):
         return False
     return first > 0.0 or last < 1.0
-
-
-# The search filter shows translated labels but stores a stable FileKind, so the
-# selection survives a language switch instead of depending on the visible text.
-_SEARCH_KIND_KEYS = ('kind.all', 'kind.text', 'kind.markdown', 'kind.code', 'kind.csv',
-                     'kind.image', 'kind.pdf', 'kind.document', 'kind.binary')
-_SEARCH_KIND_KINDS = (None, FileKind.TEXT, FileKind.MARKDOWN, FileKind.CODE, FileKind.CSV,
-                      FileKind.IMAGE, FileKind.PDF, FileKind.DOCUMENT, FileKind.BINARY)
-
-
-def search_kind_values() -> tuple[str, ...]:
-    """Return the translated search-filter labels in their fixed order."""
-    return tuple(tr(key) for key in _SEARCH_KIND_KEYS)
 
 
 @dataclass
@@ -78,6 +65,7 @@ class PreviewApplication:
         'diff': ('diff_hotkey', 'action.diff'),
         'convert': ('convert_hotkey', 'action.convert'),
         'filter': ('filter_hotkey', 'action.filter'),
+        'ai': ('ai_hotkey', 'action.ai'),
     }
 
     def __init__(self, context, *, renderers=None, resident=False, always_on_top=None,
@@ -126,12 +114,13 @@ class PreviewApplication:
         self._diff_results = queue.Queue()
         self._diff_thread = None
         self._comparison_picker_open = False
-        self._filter_thread = None
-        self._filter_results = queue.Queue()
         self._convert_thread = None
         self._convert_results = queue.Queue()
         self._ai_thread = None
         self._ai_results = queue.Queue()
+        self.ai_quick_window: tk.Toplevel | None = None
+        self._ai_quick_view: AiTaskView | None = None
+        self._ai_transcript = ''
         self.convert_dialog: ConversionDialog | None = None
         self.filter_dialog: FilterDialog | None = None
         self._conversion_picker_open = False
@@ -160,12 +149,9 @@ class PreviewApplication:
         self.convert_mode = tk.StringVar(value=context.config.current.convert_mode)
         self.search_folder = tk.StringVar()
         self.search_name = tk.StringVar()
-        self.search_kind = tk.StringVar(value=tr('kind.all'))
         self.search_status = tk.StringVar(value=tr('status.search.default'))
-        self.filter_folder = tk.StringVar()
-        self.filter_status = tk.StringVar(value=tr('status.filter.default'))
         self.filter_shortcut_feedback = tk.StringVar(value='')
-        self.filter_vars = {kind: tk.BooleanVar(value=False) for kind in (
+        self.search_kind_vars = {kind: tk.BooleanVar(value=False) for kind in (
             FileKind.IMAGE, FileKind.PDF, FileKind.TEXT, FileKind.MARKDOWN,
             FileKind.CODE, FileKind.CSV, FileKind.DOCUMENT, FileKind.BINARY)}
         self.ai_enabled = tk.BooleanVar(value=context.config.current.ai_enabled)
@@ -175,7 +161,6 @@ class PreviewApplication:
         self.ai_instruction = tk.StringVar()
         self.ai_status = tk.StringVar(value=tr('status.ai.default'))
         self._search_cache = ()
-        self._filter_cache = ()
         self._main_page = 'tools'
         self._build_main()
         if resident:
@@ -234,7 +219,7 @@ class PreviewApplication:
         workspace.rowconfigure(0, weight=1)
         workspace.columnconfigure(0, weight=1)
         self._pages, self._page_buttons, self._page_canvases = {}, {}, {}
-        builders = (self._build_tools_page, self._build_search_page, self._build_filter_page,
+        builders = (self._build_tools_page, self._build_search_page,
                     self._build_ai_page, self._build_settings_page)
         for (page, title_key), build in zip(_MAIN_PAGES, builders, strict=True):
             button = ttk.Button(nav, text=tr(title_key), width=1, style='Nav.TButton',
@@ -325,45 +310,38 @@ class PreviewApplication:
         self._card_label(conversion, text=tr('hint.convert_mode'))
         self._card_label(conversion, textvariable=self.convert_status, pady=(8, 0))
 
-    def _folder_row(self, parent: ttk.Frame, folder: tk.StringVar, choose: Callable[[], None]) -> None:
+    def _folder_row(self, parent: ttk.Frame, folder: tk.StringVar, choose: Callable[[], None]) -> ttk.Button:
         row = ttk.Frame(parent, style='Card.TFrame')
         row.pack(fill='x', pady=4)
-        ttk.Button(row, text=tr('btn.choose_folder'), command=choose).pack(side='left', padx=(0, 8))
+        button = ttk.Button(row, text=tr('btn.choose_folder'), command=choose)
+        button.pack(side='left', padx=(0, 8))
         ttk.Entry(row, textvariable=folder, state='readonly', width=1).pack(side='left', fill='x', expand=True)
+        return button
 
     def _build_search_page(self, content: ttk.Frame) -> None:
         criteria = self._card(content, tr('card.criteria'))
-        self._folder_row(criteria, self.search_folder, self._choose_search_folder)
+        self.search_folder_button = self._folder_row(criteria, self.search_folder, self._choose_search_folder)
         row = ttk.Frame(criteria, style='Card.TFrame')
         row.pack(fill='x', pady=4)
         ttk.Label(row, text=tr('label.search_name'), style='Card.Muted.TLabel').pack(side='left', padx=(0, 8))
         self.search_entry = ttk.Entry(row, textvariable=self.search_name, width=1)
         self.search_entry.pack(side='left', fill='x', expand=True)
-        self.search_kind_box = ttk.Combobox(row, textvariable=self.search_kind, state='readonly',
-                                            width=18, values=search_kind_values())
-        self.search_kind_box.pack(side='left', padx=8)
-        self.search_button = ttk.Button(row, text=tr('btn.search'), command=self._search, style='Accent.TButton')
-        self.search_button.pack(side='left')
+        self._card_label(criteria, text=tr('label.search_types'), pady=(4, 0))
+        self.search_checks = build_filter_checks(criteria, self.search_kind_vars)
+        self.search_button = ttk.Button(criteria, text=tr('btn.search'), command=self._search, style='Accent.TButton')
+        self.search_button.pack(anchor='w')
         self.search_entry.bind('<Return>', self._search_from_entry)
         self._card_label(criteria, textvariable=self.search_status, pady=(8, 0))
-        self._card_label(criteria, textvariable=self.shortcut_statuses['search'], pady=(4, 0))
+        for action in ('search', 'filter'):
+            self._card_label(criteria, text=tr(self.SHORTCUT_ACTIONS[action][1]), pady=(4, 0))
+            self._card_label(criteria, textvariable=self.shortcut_statuses[action])
+        self._card_label(criteria, textvariable=self.filter_shortcut_feedback)
         self.search_tree = build_result_table(content, self._open_search_result, scale=self._scale)
+        self.search_tree.bind('<Return>', self._open_selected_search_result)
 
     def _search_from_entry(self, _event: tk.Event) -> str:
         self.search_button.invoke()
         return 'break'
-
-    def _build_filter_page(self, content: ttk.Frame) -> None:
-        criteria = self._card(content, tr('card.criteria'))
-        self._folder_row(criteria, self.filter_folder, self._choose_filter_folder)
-        build_filter_checks(criteria, self.filter_vars)
-        self.filter_button = ttk.Button(criteria, text=tr('btn.apply_filter'),
-                                        command=self._apply_filter, style='Accent.TButton')
-        self.filter_button.pack(anchor='w', pady=(4, 0))
-        self._card_label(criteria, textvariable=self.filter_status, pady=(8, 0))
-        self._card_label(criteria, textvariable=self.shortcut_statuses['filter'], pady=(4, 0))
-        self._card_label(criteria, textvariable=self.filter_shortcut_feedback)
-        self.filter_tree = build_result_table(content, self._open_filter_result, scale=self._scale)
 
     def _build_ai_page(self, content: ttk.Frame) -> None:
         connection = self._card(content, tr('card.ai_connection'))
@@ -380,23 +358,73 @@ class PreviewApplication:
                 row=row, column=0, sticky='w', padx=(0, 8), pady=3)
             ttk.Entry(fields, textvariable=variable, show=show).grid(row=row, column=1, sticky='ew', pady=3)
         ttk.Button(connection, text=tr('btn.save_ai'), command=self._save_ai).pack(anchor='w', pady=(4, 0))
+        self._card_label(connection, textvariable=self.shortcut_statuses['ai'], pady=(4, 0))
 
         task = self._card(content, tr('card.ai_task'))
-        self._card_label(task, text=tr('label.ai_instruction'))
-        self.ai_instruction_entry = ttk.Entry(task, textvariable=self.ai_instruction)
-        self.ai_instruction_entry.pack(fill='x', pady=8)
-        self.ai_run_button = ttk.Button(task, text=tr('btn.run_ai'), command=self._run_ai, style='Accent.TButton')
-        self.ai_run_button.pack(anchor='w', pady=(0, 8))
-        self._card_label(task, textvariable=self.ai_status)
-        output = ttk.Frame(task, style='Card.TFrame')
-        output.pack(fill='x', pady=(8, 0))
-        self.ai_output = tk.Text(output, height=8, width=1, wrap='word', relief='flat', borderwidth=0,
-                                 background=COLORS['card'], foreground=COLORS['text'],
-                                 font=self.fonts['body'], state='disabled', padx=4, pady=4)
-        scrollbar = ttk.Scrollbar(output, orient='vertical', command=self.ai_output.yview)
-        self.ai_output.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side='right', fill='y')
-        self.ai_output.pack(side='left', fill='x', expand=True)
+        self._ai_main_view = AiTaskView(task, instruction=self.ai_instruction, status=self.ai_status,
+                                       on_run=self._run_ai, fonts=self.fonts)
+        self._ai_main_view.pack(fill='both', expand=True)
+        self._ai_main_view.set_output(self._ai_transcript)
+        self._ai_main_view.set_busy(self._ai_thread is not None)
+
+    def _show_ai_quick(self) -> None:
+        if self.closing:
+            return
+        window = self.ai_quick_window
+        if window is None:
+            from offlook.platforms.windows_dpi import window_dpi
+            from offlook.ui.theme import size_window, window_fonts
+
+            window = self.ai_quick_window = tk.Toplevel(self.root)
+            window.withdraw()
+            window._offlook_font_prefix = 'AiQuick'
+            window.configure(background=COLORS['background'])
+            dpi = window_dpi(window.winfo_id())
+            window_fonts(window, dpi)
+            size_window(window, dpi, 580, 400, 480, 320)
+            self._build_ai_quick_body()
+
+            def focus_when_mapped(event: tk.Event) -> None:
+                if event.widget is window and self._ai_quick_view is not None:
+                    self._ai_quick_view.focus_instruction()
+
+            def dismiss(_event: tk.Event) -> str:
+                self._close_ai_quick()
+                return 'break'
+
+            window.bind('<Map>', focus_when_mapped)
+            window.bind('<Escape>', dismiss)
+            window.protocol('WM_DELETE_WINDOW', self._close_ai_quick)
+        window.deiconify()
+        window.lift()
+        if window.winfo_viewable() and self._ai_quick_view is not None:
+            self._ai_quick_view.focus_instruction()
+
+    def _build_ai_quick_body(self) -> None:
+        window = self.ai_quick_window
+        if window is None:
+            return
+        for child in window.winfo_children():
+            child.destroy()
+        window.title(tr('card.ai'))
+        body = ttk.Frame(window, style='Card.TFrame', padding=12)
+        body.pack(fill='both', expand=True)
+        ttk.Button(body, text=tr('btn.close'), style='AiQuick.TButton',
+                   command=self._close_ai_quick).pack(side='bottom', anchor='e', pady=(6, 0))
+        hint = ttk.Label(body, text=tr('hint.ai_quick'), style='AiQuick.Card.Muted.TLabel', justify='left')
+        hint.pack(fill='x', pady=(0, 6))
+        hint.bind('<Configure>', self._wrap_label)
+        self._ai_quick_view = AiTaskView(body, instruction=self.ai_instruction, status=self.ai_status,
+                                        on_run=self._run_ai, fonts=window._offlook_fonts, style_prefix='AiQuick.')
+        self._ai_quick_view.pack(fill='both', expand=True)
+        self._ai_quick_view.set_output(self._ai_transcript)
+        self._ai_quick_view.set_busy(self._ai_thread is not None)
+
+    def _close_ai_quick(self) -> None:
+        window = self.ai_quick_window
+        if window is not None:
+            self.ai_quick_window = self._ai_quick_view = None
+            window.destroy()
 
     def _build_settings_page(self, content: ttk.Frame) -> None:
         settings = self._card(content, tr('card.shortcuts'))
@@ -546,47 +574,56 @@ class PreviewApplication:
         self._diff_thread = threading.Thread(target=work, name='OffLookFileComparison', daemon=True)
         self._diff_thread.start()
 
-    def _choose_search_folder(self):
-        """Choose the root folder for recursive local search."""
-        folder = filedialog.askdirectory(parent=self.root)
-        if folder:
-            self.search_folder.set(folder)
-            self.search_status.set(tr('status.search.ready'))
-
-    def _search(self):
-        """Run recursive search off the Tk thread and display bounded results."""
-        if self._search_thread and self._search_thread.is_alive():
+    def _choose_search_folder(self) -> None:
+        if self.closing or self._search_thread is not None:
             return
-        folder = self.search_folder.get().strip()
-        if not folder:
+        folder = filedialog.askdirectory(parent=self.root)
+        if folder and not self.closing and self._search_thread is None:
+            self._prepare_search_folder(folder, status_key='status.search.ready')
+
+    def _prepare_search_folder(self, folder: str, *, status_key: str) -> None:
+        if folder == self.search_folder.get():
+            return
+        self.search_folder.set(folder)
+        self._search_cache = ()
+        fill_results(self.search_tree, ())
+        self.search_status.set(tr(status_key))
+
+    def _set_search_busy(self, busy: bool) -> None:
+        for control in (self.search_folder_button, self.search_entry, *self.search_checks, self.search_button):
+            control.state(['disabled' if busy else '!disabled'])
+
+    def _search(self) -> None:
+        if self.closing or self._search_thread is not None:
+            return
+        folder = self.search_folder.get()
+        if not folder.strip():
             self.search_status.set(tr('status.search.no_folder'))
             return
-        from offlook.core import find_files
-        index = self.search_kind_box.current()
-        selected_kind = _SEARCH_KIND_KINDS[index if index >= 0 else 0]
-        self.search_button.state(['disabled'])
+        kinds = tuple(kind for kind, variable in self.search_kind_vars.items() if variable.get())
+        self._search_cache = ()
+        fill_results(self.search_tree, ())
+        self._set_search_busy(True)
         self.search_status.set(tr('status.search.running'))
-        self._search_thread = threading.Thread(
-            target=self._search_worker,
-            args=(folder, self.search_name.get(), selected_kind, find_files),
-            name='OffLookSearch', daemon=True,
-        )
-        self._search_thread.start()
-
-    def _search_worker(self, folder, filename, kind, finder):
-        """Return search results without touching Tk from the worker thread."""
         try:
-            self._search_results.put((finder(folder, filename=filename, kind=kind), None))
-        except OffLookError as exc:
-            self._search_results.put((None, str(exc)))
-        except OSError as exc:
-            self._search_results.put((None, f'File search failed: {exc}'))
+            self._search_thread = start_filter_scan(folder, kinds, self._search_results,
+                                                    filename=self.search_name.get())
+        except RuntimeError as exc:
+            self._set_search_busy(False)
+            self.search_status.set(f'File search failed: {type(exc).__name__}: {exc}')
 
-    def _open_search_result(self, _event):
-        """Preview the selected search result."""
+    def _open_search_result(self, event: tk.Event) -> None:
+        self._open_search_row(self.search_tree.identify_row(event.y))
+
+    def _open_selected_search_result(self, _event: tk.Event) -> str:
         selected = self.search_tree.selection()
         if selected:
-            self.open(self.search_tree.item(selected[0], 'values')[1])
+            self._open_search_row(selected[0])
+        return 'break'
+
+    def _open_search_row(self, row: str) -> None:
+        if row:
+            self.open(self.search_tree.item(row, 'values')[1])
 
     def _choose_convert_files(self):
         """Choose files manually without interrupting a running conversion."""
@@ -689,36 +726,6 @@ class PreviewApplication:
             self.convert_mode.set(self.context.config.current.convert_mode)
             self.convert_status.set(str(exc))
 
-    def _choose_filter_folder(self):
-        """Choose the root folder for format filtering."""
-        folder = filedialog.askdirectory(parent=self.root)
-        if folder:
-            self.filter_folder.set(folder)
-            self.filter_status.set(tr('status.filter.ready'))
-
-    def _apply_filter(self):
-        """Run multi-format filtering off the Tk thread."""
-        if self.closing or self._filter_thread is not None:
-            return
-        folder = self.filter_folder.get().strip()
-        if not folder:
-            self.filter_status.set(tr('status.search.no_folder'))
-            return
-        kinds = tuple(kind for kind, variable in self.filter_vars.items() if variable.get())
-        self.filter_button.state(['disabled'])
-        self.filter_status.set(tr('status.filter.running'))
-        try:
-            self._filter_thread = start_filter_scan(folder, kinds, self._filter_results)
-        except RuntimeError as exc:
-            self.filter_button.state(['!disabled'])
-            self.filter_status.set(f'File filtering failed: {type(exc).__name__}: {exc}')
-
-    def _open_filter_result(self, _event):
-        """Preview the selected filtered file."""
-        selected = self.filter_tree.selection()
-        if selected:
-            self.open(self.filter_tree.item(selected[0], 'values')[1])
-
     def open_filter(self, folder: str | Path, *, kinds: Sequence[FileKind] = ()) -> None:
         """Show the standalone filter for an already validated directory."""
         if self.closing:
@@ -764,7 +771,7 @@ class PreviewApplication:
 
     def _run_ai(self):
         """Run the configured AI assistant in a worker, never on the Tk thread."""
-        if self._ai_thread and self._ai_thread.is_alive():
+        if self.closing or self._ai_thread is not None:
             return
         instruction = self.ai_instruction.get().strip()
         if not instruction:
@@ -774,7 +781,7 @@ class PreviewApplication:
         if not config.ai_api_key:
             self.ai_status.set(tr('status.ai.no_key'))
             return
-        self.ai_run_button.state(['disabled'])
+        self._set_ai_busy(True)
         self.ai_status.set(tr('status.ai.running'))
         def work():
             try:
@@ -786,14 +793,23 @@ class PreviewApplication:
             except Exception as exc:
                 self._ai_results.put((None, f'AI assistant failed: {type(exc).__name__}: {exc}'))
         self._ai_thread = threading.Thread(target=work, name='OffLookAi', daemon=True)
-        self._ai_thread.start()
+        try:
+            self._ai_thread.start()
+        except RuntimeError as exc:
+            self._ai_thread = None
+            self._set_ai_busy(False)
+            self.ai_status.set(f'AI assistant failed: {type(exc).__name__}: {exc}')
 
-    def _set_ai_output(self, value):
-        """Replace the read-only assistant transcript."""
-        self.ai_output.configure(state='normal')
-        self.ai_output.delete('1.0', 'end')
-        self.ai_output.insert('1.0', value)
-        self.ai_output.configure(state='disabled')
+    def _set_ai_busy(self, busy: bool) -> None:
+        self._ai_main_view.set_busy(busy)
+        if self._ai_quick_view is not None:
+            self._ai_quick_view.set_busy(busy)
+
+    def _set_ai_output(self, value: str) -> None:
+        self._ai_transcript = value
+        self._ai_main_view.set_output(value)
+        if self._ai_quick_view is not None:
+            self._ai_quick_view.set_output(value)
 
     def _toggle_startup(self):
         """Change logon registration only on an explicit user action."""
@@ -844,9 +860,10 @@ class PreviewApplication:
             (self.status, 'status.initial'),
             (self.diff_status, 'status.diff.default'),
             (self.convert_status, 'status.convert.default'),
-            (self.search_status, 'status.search.default'),
-            (self.filter_status, 'status.filter.default'),
-            (self.ai_status, 'status.ai.default'),
+            *((self.search_status, f'status.search.{state}')
+              for state in ('default', 'ready', 'no_folder', 'running', 'explorer')),
+            *((self.ai_status, f'status.ai.{state}')
+              for state in ('default', 'no_instruction', 'no_key', 'running', 'finished')),
         )
         for variable, key in prompts:
             if variable.get() in (tr_in(previous, key), tr(key)):
@@ -860,19 +877,16 @@ class PreviewApplication:
         if self.help_window is not None and self.help_window.winfo_exists():
             self.help_window.destroy()
         self.help_window = None
-        search_index = max(0, self.search_kind_box.current())
-        transcript = self.ai_output.get('1.0', 'end-1c')
-        worker_buttons = ('search_button', 'filter_button', 'ai_run_button', 'path_button')
-        disabled = [name for name in worker_buttons if getattr(self, name).instate(['disabled'])]
+        path_busy = self.path_button.instate(['disabled'])
         self._main_shell.destroy()
         self._build_main()
         self._apply_saved_toggles()
-        self.search_kind_box.current(search_index)
+        self._set_search_busy(self._search_thread is not None)
         self._refresh_hotkey_status()
         self._repopulate_results(previous)
-        self._set_ai_output(transcript)
-        for name in disabled:
-            getattr(self, name).state(['disabled'])
+        self._build_ai_quick_body()
+        if path_busy:
+            self.path_button.state(['disabled'])
 
     def _apply_saved_toggles(self):
         """Re-apply control states the rebuilt widgets cannot infer on their own."""
@@ -887,13 +901,10 @@ class PreviewApplication:
 
     def _repopulate_results(self, previous: str) -> None:
         """Relabel cached rows and completed counts without replacing live feedback."""
-        for tree, rows, status, key in (
-            (self.search_tree, self._search_cache, self.search_status, 'status.search.found'),
-            (self.filter_tree, self._filter_cache, self.filter_status, 'status.filter.found'),
-        ):
-            fill_results(tree, rows)
-            if status.get() == tr_in(previous, key, n=len(rows)):
-                status.set(tr(key, n=len(rows)))
+        fill_results(self.search_tree, self._search_cache)
+        count = len(self._search_cache)
+        if self.search_status.get() == tr_in(previous, 'status.search.found', n=count):
+            self.search_status.set(tr('status.search.found', n=count))
 
     def _help_key(self,event):
         """Do not steal a key while shortcut recording is active."""
@@ -1347,9 +1358,14 @@ class PreviewApplication:
         preview_hwnd = (win32gui.GetAncestor(self.preview.window.winfo_id(), 2)
                         if self.preview is not None else None)
         owned = {main_hwnd, preview_hwnd}
-        for window in (self.help_window, self.diff_window, self.convert_dialog, self.filter_dialog):
+        for window in (self.help_window, self.diff_window, self.convert_dialog,
+                       self.filter_dialog, self.ai_quick_window):
             if window is not None and window.winfo_exists():
                 owned.add(win32gui.GetAncestor(window.winfo_id(), 2))
+        if action == 'ai':
+            if (hwnd == main_hwnd or hwnd not in owned) and win32gui.GetForegroundWindow() == hwnd:
+                self._show_ai_quick()
+            return
         if hwnd in owned:
             if action == 'preview' and hwnd == preview_hwnd:
                 self._hotkey(hwnd)
@@ -1411,7 +1427,8 @@ class PreviewApplication:
             message = message or tr('status.selection.no_folder')
         text = tr('status.hotkey.label', label=label, message=message)
         if action == 'search':
-            self.search_status.set(text)
+            status = self.search_status if self._search_thread is None else self.status
+            status.set(text)
         elif action == 'diff':
             self.diff_status.set(text)
         elif action == 'convert':
@@ -1448,11 +1465,12 @@ class PreviewApplication:
             elif result['data'].path is None:
                 self._selection_feedback(action, result['data'].reason)
             elif action == 'search':
-                self.search_folder.set(str(result['data'].path))
-                self.search_status.set(tr('status.search.explorer'))
+                if self._search_thread is None:
+                    self._prepare_search_folder(str(result['data'].path), status_key='status.search.explorer')
                 self._select_main_page('search')
                 self._show()
-                self.root.after_idle(self._focus_search)
+                if self._search_thread is None:
+                    self.root.after_idle(self._focus_search)
             elif action == 'filter':
                 self.filter_shortcut_feedback.set('')
                 self.open_filter(result['data'].path)
@@ -1463,7 +1481,7 @@ class PreviewApplication:
                 self.preview.set_render_suspended(False)
 
     def _focus_search(self):
-        if not self.closing and self._main_page == 'search':
+        if not self.closing and self._main_page == 'search' and self._search_thread is None:
             self.search_entry.focus_set()
             self.search_entry.selection_range(0, 'end')
 
@@ -1496,19 +1514,15 @@ class PreviewApplication:
                 if result.conflicting_executable:
                     message += tr('status.path.conflict', exe=result.conflicting_executable)
                 self.status.set(message)
-        try:
+        if self._search_thread is not None and not self._search_thread.is_alive():
             search_results, search_error = self._search_results.get_nowait()
-        except queue.Empty:
-            pass
-        else:
+            self._search_thread = None
             if not self.closing:
-                self.search_button.state(['!disabled'])
+                self._set_search_busy(False)
                 self._search_cache = tuple(search_results or ())
                 fill_results(self.search_tree, self._search_cache)
-                if search_error:
-                    self.search_status.set(search_error)
-                else:
-                    self.search_status.set(tr('status.search.found', n=len(self._search_cache)))
+                self.search_status.set(search_error if search_error is not None else
+                                       tr('status.search.found', n=len(self._search_cache)))
         try:
             comparison, compare_error = self._diff_results.get_nowait()
         except queue.Empty:
@@ -1528,17 +1542,6 @@ class PreviewApplication:
                     tr('status.diff.differences') if comparison.changed else tr('status.diff.same')
                 )
                 self.status.set(tr('status.diff.ready'))
-        if self._filter_thread is not None and not self._filter_thread.is_alive():
-            self._filter_thread = None
-            filter_results, filter_error = self._filter_results.get_nowait()
-            if not self.closing:
-                self.filter_button.state(['!disabled'])
-                self._filter_cache = tuple(filter_results or ())
-                fill_results(self.filter_tree, self._filter_cache)
-                if filter_error is not None:
-                    self.filter_status.set(filter_error)
-                else:
-                    self.filter_status.set(tr('status.filter.found', n=len(self._filter_cache)))
         dialog = self.filter_dialog
         if not self.closing and dialog is not None:
             dialog.poll()
@@ -1553,26 +1556,24 @@ class PreviewApplication:
                 pass
             else:
                 self._report_conversion(conversion, convert_error)
-        try:
+        if self._ai_thread is not None and not self._ai_thread.is_alive():
             ai_result, ai_error = self._ai_results.get_nowait()
-        except queue.Empty:
-            pass
-        else:
-            self.ai_run_button.state(['!disabled'])
-            if ai_error:
-                self.ai_status.set(ai_error)
-                self._set_ai_output(ai_error)
-            else:
-                lines = [ai_result.answer]
-                if ai_result.steps:
-                    lines.append('')
-                    lines.append(tr('status.ai.tools'))
-                    for step in ai_result.steps:
-                        lines.append(f'• {step.name}({step.arguments})')
-                        if step.error:
-                            lines.append(f'  error: {step.error}')
-                self.ai_status.set(tr('status.ai.finished'))
-                self._set_ai_output('\n'.join(lines))
+            self._ai_thread = None
+            if not self.closing:
+                self._set_ai_busy(False)
+                if ai_error is not None:
+                    self.ai_status.set(ai_error)
+                    self._set_ai_output(ai_error)
+                else:
+                    lines = [ai_result.answer]
+                    if ai_result.steps:
+                        lines.extend(('', tr('status.ai.tools')))
+                        for step in ai_result.steps:
+                            lines.append(f'• {step.name}({step.arguments})')
+                            if step.error:
+                                lines.append(f'  error: {step.error}')
+                    self.ai_status.set(tr('status.ai.finished'))
+                    self._set_ai_output('\n'.join(lines))
         for result in self.runner.poll():
             # Every resize/page/file switch invalidates older response generations.
             if self.closing or result['request_id']!=self.generation: continue
@@ -1591,7 +1592,10 @@ class PreviewApplication:
         listeners = [*self.listeners.values(),
                      *(pending.listener for pending in self._pending_listeners.values()),
                      *(listener for _, listener in self._retiring_listeners)]
-        if self.closing and self.runner.is_closed and not listeners and (self.tray is None or self.tray.is_stopped) and (self._path_thread is None or not self._path_thread.is_alive()) and (self._search_thread is None or not self._search_thread.is_alive()) and (self._diff_thread is None or not self._diff_thread.is_alive()) and (self._filter_thread is None or not self._filter_thread.is_alive()) and (self._convert_thread is None or not self._convert_thread.is_alive()) and (self._ai_thread is None or not self._ai_thread.is_alive()):
+        work = (self._path_thread, self._search_thread, self._diff_thread, self._convert_thread, self._ai_thread)
+        if (self.closing and self.runner.is_closed and not listeners
+                and (self.tray is None or self.tray.is_stopped)
+                and not any(thread is not None and thread.is_alive() for thread in work)):
             self.root.destroy()
             return
         self.root.after(25,self._poll)
@@ -1605,8 +1609,9 @@ class PreviewApplication:
         if self.selection_hwnd is None:
             self.generation += 1
             self.runner.cancel()
-        self.preview.destroy()
-        self.preview = None
+        # destroy() calls back here; clear ownership before closing the view.
+        preview, self.preview = self.preview, None
+        preview.destroy()
         self.context.events.publish('preview.closed', {'path': self.path})
         if not self.resident and exiting and self.filter_dialog is None:
             self.shutdown()
@@ -1623,6 +1628,7 @@ class PreviewApplication:
         self._stop_hotkeys()
         self._refresh_hotkey_status()
         if self.tray: self.tray.stop()
+        self._close_ai_quick()
         if self.filter_dialog is not None:
             self.filter_dialog.destroy()
             self.filter_dialog = None

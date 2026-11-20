@@ -32,8 +32,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "card.preview": ("Quick preview", "快速預覽"),
     "card.compare": ("File comparison", "檔案比對"),
     "card.convert": ("Convert files", "檔案轉換"),
-    "card.search": ("Search files", "檔案搜尋"),
-    "card.filter": ("Filter files", "檔案篩選"),
+    "card.search_filter": ("Search & filter", "搜尋與篩選"),
     "card.ai": ("AI file assistant", "AI 檔案助手"),
     "card.criteria": ("Criteria", "條件"),
     "card.ai_connection": ("Connection", "連線設定"),
@@ -78,6 +77,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "btn.choose_folder": ("Choose folder", "選擇資料夾"),
     "btn.search": ("Search", "搜尋"),
     "label.search_name": ("File name", "檔名"),
+    "label.search_types": ("File types (none = all)", "檔案類型（未勾選即不限）"),
     "col.type": ("Type", "類型"),
     "col.path": ("File", "檔案"),
     "status.search.default": ("Choose a folder to search recursively.", "選擇資料夾以遞迴搜尋。"),
@@ -85,18 +85,8 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "status.search.no_folder": ("Choose a folder first.", "請先選擇資料夾。"),
     "status.search.running": ("Searching…", "搜尋中…"),
     "status.search.found": ("{n} file(s) found.", "找到 {n} 個檔案。"),
-    "status.search.explorer": ("Folder selected from File Explorer. Enter a filename or "
-                               "choose a type, then click Search.",
-                               "已從檔案總管選擇資料夾。輸入檔名或選擇類型後按「搜尋」。"),
-
-    # Filter card
-    "btn.apply_filter": ("Apply filter", "套用篩選"),
-    "status.filter.default": ("Choose a folder and check formats to filter.",
-                              "選擇資料夾並勾選要篩選的格式。"),
-    "status.filter.ready": ("Ready to filter.", "可以開始篩選。"),
-    "status.filter.running": ("Filtering…", "篩選中…"),
-    "status.filter.found": ("{n} file(s) match the selected formats.",
-                            "符合所選格式的檔案共 {n} 個。"),
+    "status.search.explorer": ("Folder selected from File Explorer. Click Search when ready.",
+                               "已從檔案總管選擇資料夾。準備好後按「搜尋」。"),
     "filter.dialog.close": ("Close", "關閉"),
 
     # AI card
@@ -108,6 +98,10 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "label.ai_instruction": ('Instruction (e.g. "move all PDF files in D:\\Docs to D:\\Archive")',
                              "指令（例如「把 D:\\Docs 內所有 PDF 移到 D:\\Archive」）"),
     "btn.run_ai": ("Run with AI", "用 AI 執行"),
+    "hint.ai_run_privacy": ("Run sends your instruction and may send file paths, names, and sizes. Tools can change local files.",
+                            "執行會傳送指令，也可能傳送檔案路徑、名稱和大小；工具可以變更本機檔案。"),
+    "hint.ai_quick": ("Save connection settings on the main AI page. Closing this window does not stop a run.",
+                      "請在主視窗的 AI 頁面儲存連線設定。關閉此視窗不會中止執行。"),
     "status.ai.default": ("Connect your own AI (DeepSeek, OpenAI, or any compatible endpoint).",
                           "連接你自己的 AI（DeepSeek、OpenAI 或任何相容端點）。"),
     "status.ai.saved": ("AI settings saved", "AI 設定已儲存"),
@@ -120,10 +114,11 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Shortcut card
     "check.enable_shortcuts": ("Enable global shortcuts", "啟用全域快捷鍵"),
     "action.preview": ("Preview", "預覽"),
-    "action.search": ("Search files", "檔案搜尋"),
+    "action.search": ("Search & filter (main window)", "搜尋與篩選（主視窗）"),
     "action.diff": ("Compare files", "檔案比對"),
     "action.convert": ("Convert files", "檔案轉換"),
-    "action.filter": ("Filter files", "檔案篩選"),
+    "action.filter": ("Search & filter (quick window)", "搜尋與篩選（小視窗）"),
+    "action.ai": ("AI file assistant", "AI 檔案助手"),
     "btn.record": ("Record shortcut", "錄製快捷鍵"),
     "btn.apply": ("Apply", "套用"),
     "btn.reset_default": ("Reset default", "還原預設"),
@@ -177,6 +172,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
 
     # Footer and generic
     "btn.exit": ("Exit", "結束"),
+    "btn.close": ("Close", "關閉"),
     "btn.hide": ("Hide to tray", "隱藏到系統匣"),
     "status.initial": ("Preview and file comparison run locally.", "預覽與檔案比對均在本機執行。"),
     "common.separator": ("; ", "；"),
