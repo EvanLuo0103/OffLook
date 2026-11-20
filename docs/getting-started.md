@@ -2,7 +2,7 @@
 
 ## 1. Download and install
 
-- **Windows installer:** When available, download `OffLook-<version>-windows-x64-setup.exe` from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Python and administrator permissions are not required. Launch OffLook from the Start menu. The installer is unsigned.
+- **Windows installer:** When available, download `OffLook-<version>-windows-x64-setup.exe` from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Python and administrator permissions are not required. Launch OffLook from the Start menu. Select **Create a desktop shortcut** during setup if you also want a desktop icon; it is unchecked by default on a fresh install. The installer is unsigned.
 - **PyPI, once published:** On Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher, run `py -m pip install --user offlook`, then `py -m offlook`. Use `offlook[office]` for the optional Python conversion libraries.
 - **Source checkout:** On GitHub, click **Code → Download ZIP**, extract it, and open PowerShell in the folder containing `pyproject.toml`. Run:
 
@@ -29,6 +29,8 @@ ol preview '.\README.md'
 
 Only the current user's installation directory is added; administrator privileges are not required. Existing terminals do not update automatically. If PowerShell resolves `ol` to another command, run `Get-Command ol -All` and use `ol.exe` by its full path.
 
+Use **Remove from PATH** in the same Settings card to undo an entry OffLook recorded adding for this installation. It leaves pre-existing or untracked entries and the system PATH alone. Reopen the terminal after removal, too.
+
 The Windows installer provides `OffLook.exe` for the graphical app and `ol.exe` for terminal commands. Python installations provide both `ol` and `offlook` as CLI commands; `py -m offlook` also works without a PATH change.
 
 ## 3. Preview files
@@ -46,9 +48,9 @@ Previews and comparisons accept local regular files. Shortcut selection rejects 
 
 On **Search & filter**, choose a local folder, optionally enter a case-insensitive filename fragment, and check any number of file types. A file must match the name and any checked type; no checks means all types. Click **Search** or press Enter in the filename field. The scan includes subfolders, skips links and inaccessible directories, and does not read file contents. Double-click a result or select it and press Enter to preview.
 
-In File Explorer, select one local folder or leave nothing selected inside a local folder. **Ctrl+Q** opens the main **Search & filter** page, fills the folder, and focuses the filename field. **Ctrl+Alt+F** instead opens only the quick window, with a fixed folder and the same filename and type filters. Neither shortcut scans automatically. One selected regular file or multiple items is an error, not a request to use the parent folder.
+In File Explorer, select one local folder or leave nothing selected inside a local folder. **Ctrl+Alt+F** opens only the quick window, with a fixed folder and the same filename and type filters. It does not scan automatically. One selected regular file or multiple items is an error, not a request to use the parent folder.
 
-If the main-window key does not work, see [Diagnose the search shortcut](#diagnose-the-search-shortcut).
+If the shortcut does not work, see [Diagnose the search shortcut](#diagnose-the-search-shortcut).
 
 ### Compare two files
 
@@ -61,7 +63,7 @@ The result opens in **Split** view (old on the left, new on the right). Switch t
 
 ## 4. Customize global shortcuts
 
-Keep OffLook running and select one local file in File Explorer or on the desktop to use **Preview** (**Ctrl+Space**). Pressing its shortcut again over that preview closes it. Other defaults: **Search & filter (main window)** (**Ctrl+Q**), **Search & filter (quick window)** (**Ctrl+Alt+F**), **Compare files** (**Ctrl+Alt+D**), **Convert files** (**Alt+C**), and **AI file assistant** (**Ctrl+Alt+Shift+A**, no file selection). All six are configurable.
+Keep OffLook running and select one local file in File Explorer or on the desktop to use **Preview** (**Ctrl+Space**). Pressing its shortcut again over that preview closes it. Other defaults: **Search & filter (quick window)** (**Ctrl+Alt+F**), **Compare files** (**Ctrl+Alt+D**), **Convert files** (**Alt+C**), and **AI file assistant** (**Ctrl+Alt+Shift+A**, no file selection). All five are configurable.
 
 In **Settings → Shortcut settings**, choose the action to change. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft. Esc, switching actions, or leaving the settings page cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an active key captures it without executing the feature.
 
@@ -71,7 +73,7 @@ Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Spa
 
 The cards and Help show actual registrations, independent of the saved keys. If registration or saving fails, the old active key remains and the draft is kept. Release an occupied key before retrying. OffLook does not watch its JSON file: exit before editing it from another process and restart to load changes. A swap of live registrations through in-process settings requires an intermediate unused combination.
 
-Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the explicit CLI configuration file. If an old configuration lacks `filter_hotkey` or `ai_hotkey`, OffLook picks an unused default from the [candidate lists](api.md#configuration-and-events) without changing saved keys or rewriting the file. Explicitly invalid or duplicate combinations are errors. The `preview` and `filter` CLI commands do not register global shortcuts.
+Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the explicit CLI configuration file. The former `search_hotkey` for the main window is ignored and removed the next time settings are saved; a custom `filter_hotkey` is preserved. If an old configuration lacks `filter_hotkey` or `ai_hotkey`, OffLook picks an unused default from the [candidate lists](api.md#configuration-and-events) without rewriting the file. Explicitly invalid or duplicate active bindings are errors. The `preview` and `filter` CLI commands do not register global shortcuts.
 
 ## 5. Background mode, startup, and Help
 
@@ -144,11 +146,11 @@ Run `ol <command> --help` for exact options. In the examples below, Windows inst
 | `settings show`; `settings set KEY [VALUE ...]` | Read or save preferences and shortcut bindings, excluding AI connection settings. |
 | `startup status`; `startup enable`; `startup disable` | Read or change OffLook's current-user sign-in registration. `status` prints `enabled` or `disabled`; this does not indicate whether the program is running. |
 | `path add` | Add the installed Scripts directory once to the current user PATH and print the directory. Open a new terminal afterward. Warnings about propagation or another executable taking precedence do not roll back the saved entry. |
-| `diagnose-search-shortcut` | Test the saved main-window Search & filter key and Explorer folder selection; stop with Ctrl+C. |
+| `diagnose-search-shortcut` | Test the saved Search & filter quick-window key and Explorer folder selection; stop with Ctrl+C. |
 
 Categories: `image`, `text`, `markdown`, `pdf`, `code`, `csv`, `document`, `binary`. Redirected data uses UTF-8 with LF. Copy, move and organize produce one JSON object per item (`source`, `destination`, `status`, `message`); `status` is `copied`, `moved`, `skipped` or `failed`. A failed item is also reported on stderr and returns 2, even if others succeeded. Otherwise success returns 0; preview rendering failure returns 1 after the window closes. Invalid input, configuration, platform or initialization returns 2. Interrupted commands normally return 130; the shortcut diagnostic returns 0 on Ctrl+C.
 
-`--config PATH` is supported for GUI launch, `preview`, `filter --gui`, `diagnose-search-shortcut`, `settings` and `startup enable`. An explicit config must exist. `settings set` accepts integer `max_file_size_bytes`, numeric `preview_timeout_seconds`, `supported_extensions` (zero or more suffixes; no values disables content renderers), booleans `always_on_top` / `hotkey_enabled` (`true` or `false`), six shortcut keys (`hotkey`, `search_hotkey`, `diff_hotkey`, `convert_hotkey`, `filter_hotkey`, `ai_hotkey`), `convert_mode` (`auto`, `text`, `office`), and `language` (`en`, `zh`). This does not register shortcuts or reload another running instance. Close the GUI before editing settings from the CLI; restart to apply them.
+`--config PATH` is supported for GUI launch, `preview`, `filter --gui`, `diagnose-search-shortcut`, `settings` and `startup enable`. An explicit config must exist. `settings set` accepts integer `max_file_size_bytes`, numeric `preview_timeout_seconds`, `supported_extensions` (zero or more suffixes; no values disables content renderers), booleans `always_on_top` / `hotkey_enabled` (`true` or `false`), five shortcut keys (`hotkey`, `diff_hotkey`, `convert_hotkey`, `filter_hotkey`, `ai_hotkey`), `convert_mode` (`auto`, `text`, `office`), and `language` (`en`, `zh`). This does not register shortcuts or reload another running instance. Close the GUI before editing settings from the CLI; restart to apply them.
 
 ```powershell
 py -m offlook search --name started --kind markdown

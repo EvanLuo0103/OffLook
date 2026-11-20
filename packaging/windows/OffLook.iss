@@ -19,6 +19,7 @@ Compression=lzma2
 SolidCompression=yes
 
 [Tasks]
+Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
 Name: addpath; Description: "Add ol to the current user's PATH"; Flags: unchecked
 
 [Files]
@@ -26,6 +27,7 @@ Source: "{#AppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdi
 
 [Icons]
 Name: "{group}\OffLook"; Filename: "{app}\OffLook.exe"; WorkingDir: "{app}"
+Name: "{userdesktop}\OffLook"; Filename: "{app}\OffLook.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Code]
 procedure CurStepChanged(Step: TSetupStep);

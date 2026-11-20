@@ -28,7 +28,7 @@ Keep OffLook running to use the default shortcuts:
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+Space` | Preview the selected local file in File Explorer or on the desktop. |
-| `Ctrl+Q` / `Ctrl+Alt+F` | Open [Search & filter](https://github.com/EvanLuo0103/OffLook/blob/main/docs/getting-started.md#search-and-filter-files) in the main window or in an independent quick window, respectively. |
+| `Ctrl+Alt+F` | Open only the [Search & filter quick window](https://github.com/EvanLuo0103/OffLook/blob/main/docs/getting-started.md#search-and-filter-files). |
 | `Ctrl+Alt+D` | Compare two selected local files. |
 | `Alt+C` | Open the conversion dialog for selected files without restoring the main window. |
 | `Ctrl+Alt+Shift+A` | Open the AI assistant quick window; no selection is needed. |

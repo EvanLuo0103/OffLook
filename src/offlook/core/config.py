@@ -17,12 +17,12 @@ from .events import EventBus
 from .files import DEFAULT_SUPPORTED_EXTENSIONS
 from .hotkeys import parse_hotkey
 
-_LEGACY_SHORTCUT_FIELDS = ('hotkey', 'search_hotkey', 'diff_hotkey', 'convert_hotkey')
+_BASE_SHORTCUT_FIELDS = ('hotkey', 'diff_hotkey', 'convert_hotkey')
 _FILTER_SHORTCUTS = ('Ctrl+Alt+F', 'Ctrl+Alt+Shift+F', 'Ctrl+Alt+G', 'Ctrl+Alt+Shift+G',
                      'Ctrl+Alt+J', 'Ctrl+Alt+Shift+J')
 _AI_SHORTCUTS = ('Ctrl+Alt+Shift+A', 'Ctrl+Alt+A', 'Ctrl+Alt+Shift+I', 'Ctrl+Alt+I',
                  'Ctrl+Alt+Shift+K', 'Ctrl+Alt+K')
-_SHORTCUT_FIELDS = (*_LEGACY_SHORTCUT_FIELDS, 'filter_hotkey', 'ai_hotkey')
+_SHORTCUT_FIELDS = (*_BASE_SHORTCUT_FIELDS, 'filter_hotkey', 'ai_hotkey')
 _CREDENTIAL_ID = re.compile(r"[0-9a-f]{32}")
 _MAX_CONFIG_BYTES = 65536
 
@@ -42,7 +42,6 @@ class PreviewConfig:
     supported_extensions: tuple[str, ...] = DEFAULT_SUPPORTED_EXTENSIONS
     always_on_top: bool = False
     hotkey: str = "Ctrl+Space"
-    search_hotkey: str = "Ctrl+Q"
     diff_hotkey: str = "Ctrl+Alt+D"
     convert_hotkey: str = "Alt+C"
     convert_mode: str = "auto"
@@ -223,6 +222,8 @@ class ConfigManager:
             if not isinstance(credential_id, str) or not _CREDENTIAL_ID.fullmatch(credential_id):
                 raise ConfigError("ai_credential_id must be 32 lowercase hexadecimal characters")
 
+        # Retire the main-window key without changing the quick-window binding.
+        values.pop('search_hotkey', None)
         unknown = set(values) - {field.name for field in fields(PreviewConfig)}
         if unknown:
             raise ConfigError("Unknown configuration keys: " + ", ".join(sorted(unknown)))
@@ -238,7 +239,7 @@ class ConfigManager:
             try:
                 occupied = {parse_hotkey(values.get(name, getattr(PreviewConfig, name))).canonical
                             for name in _SHORTCUT_FIELDS if name != field
-                            and (name in values or name in _LEGACY_SHORTCUT_FIELDS)}
+                            and (name in values or name in _BASE_SHORTCUT_FIELDS)}
             except HotkeyError:
                 break  # PreviewConfig reports the invalid field in its normal validation order.
             values[field] = next(combo for combo in choices if combo not in occupied)

@@ -16,7 +16,7 @@ Select one file in File Explorer or on the desktop, then press the configured Pr
 
 Search & filter
 Choose a local folder, optionally enter part of a filename, and check any number of file types. A file must match the name and any checked type. No checked types means all types. Click "Search" or press Enter in the filename field. Subfolders are included without following links or network folders. Double-click a result or select it and press Enter to preview.
-In File Explorer, select one local folder or leave the selection empty in a local folder. Ctrl+Q opens the main page and Ctrl+Alt+F opens only the quick window. Neither starts a scan. A selected file or multiple items is an error, not a request to use the parent folder.
+In File Explorer, select one local folder or leave the selection empty in a local folder. Ctrl+Alt+F opens only the quick window and does not start a scan. A selected file or multiple items is an error, not a request to use the parent folder.
 Run `py -m offlook filter [FOLDER]` for paths or add `--gui` for the quick window. The folder defaults to the terminal's current folder and is fixed in the quick window. `--kind` preselects types; enter the filename in the window. `--gui` cannot be combined with `--name` or `--ext`.
 
 File comparison
@@ -37,7 +37,6 @@ Use the "中文 / English" buttons at the top-right of the main window. Switchin
 
 Current global shortcuts
 Preview: {preview}
-Search & filter (main window): {search}
 Compare files: {diff}
 Convert files: {convert}
 Search & filter (quick window): {filter}
@@ -58,9 +57,8 @@ Combinations must be different for all actions, even while disabled. If registra
 Recording captures the combination without activating its feature, even for an already registered key.
 Win-key combinations, F12, single keys, and reserved combinations such as Alt+F4 are not supported. Choose a combination with Ctrl or Alt, optionally Shift.
 
-Add to PATH
-Settings → System integration → Add to PATH (or `py -m offlook path add`) updates only the current user's PATH. Reopen PowerShell afterward; restart Windows Terminal if needed.
-Existing terminals may still use the old environment. You can also run `py -m offlook`.
+Add to or remove from PATH
+Settings → System integration updates only the current user's PATH. Remove from PATH only removes an entry OffLook recorded adding for this installation. Reopen PowerShell afterward; restart Windows Terminal if needed.
 
 System tray, startup, and exit
 Closing the main window hides it only when the system tray is available. Restore it from the tray or choose Exit to stop background listening. Start at sign-in must be explicitly enabled.
@@ -78,7 +76,7 @@ _HELP_ZH = """選擇要預覽的檔案
 
 搜尋與篩選
 選擇本機資料夾，可選填部分檔名及勾選多個類型。檔案必須符合檔名和任一勾選的類型；未勾選即不限類型。按「搜尋」或在檔名欄按 Enter 開始。搜尋包含子資料夾，但不跟隨連結或網路資料夾。雙擊結果或選取結果後按 Enter 即可預覽。
-在檔案總管選取一個本機資料夾，或在本機資料夾內不選取任何項目。Ctrl+Q 開啟主視窗頁面，Ctrl+Alt+F 只開啟小視窗；兩者都不會自動掃描。選取一般檔案或多個項目是錯誤，不會改用上層資料夾。
+在檔案總管選取一個本機資料夾，或在本機資料夾內不選取任何項目。Ctrl+Alt+F 只開啟小視窗，不會自動掃描。選取一般檔案或多個項目是錯誤，不會改用上層資料夾。
 執行 `py -m offlook filter [FOLDER]` 可輸出路徑；加 `--gui` 則開啟小視窗。省略 FOLDER 時使用終端機的目前目錄。小視窗目錄固定，`--kind` 可預選類型，檔名可在視窗輸入；`--gui` 不可與 `--name` 或 `--ext` 一起使用。
 
 檔案比對
@@ -99,7 +97,6 @@ AI 檔案助手
 
 目前的通用快捷鍵
 預覽：{preview}
-搜尋與篩選（主視窗）：{search}
 檔案比對：{diff}
 檔案轉換：{convert}
 搜尋與篩選（小視窗）：{filter}
@@ -120,9 +117,8 @@ PDF 有「上一頁」「下一頁」按鈕；頁碼只在有實際繪製的 PDF
 即使按下已註冊的快捷鍵，錄製時也只會捕捉按鍵，不執行功能。
 不支援 Win 鍵組合、F12、單一按鍵，以及 Alt+F4 這類保留組合。請選擇含 Ctrl 或 Alt（可再加 Shift）的組合。
 
-加入 PATH
-「設定 → 系統整合 → 加入 PATH」或 `py -m offlook path add` 只修改目前使用者的 PATH。之後請重開 PowerShell；必要時也重開 Windows Terminal。
-已開啟的終端機可能仍在用舊的環境變數。你也可以直接執行 `py -m offlook`。
+加入或從 PATH 移除
+「設定 → 系統整合」只修改目前使用者的 PATH。「從 PATH 移除」只會移除 OffLook 為此安裝加入且有記錄的項目。之後請重開 PowerShell；必要時也重開 Windows Terminal。
 
 系統匣、開機啟動與結束
 系統匣可用時，關閉主視窗會隱藏至系統匣，可從該處還原或選擇結束。登入時自動啟動須明確啟用。結束程式會停止背景監聽。
@@ -139,7 +135,6 @@ def _help_body(shortcuts: Mapping[str, str]) -> str:
     template = _HELP_ZH if language() == "zh" else _HELP_EN
     return template.format(
         preview=shortcuts["preview"],
-        search=shortcuts["search"],
         diff=shortcuts["diff"],
         convert=shortcuts["convert"],
         filter=shortcuts["filter"],

@@ -19,7 +19,6 @@ _SETTING_TYPES = {
     'always_on_top': bool,
     'hotkey_enabled': bool,
     'hotkey': str,
-    'search_hotkey': str,
     'diff_hotkey': str,
     'convert_hotkey': str,
     'filter_hotkey': str,
@@ -44,7 +43,7 @@ def main(argv: Sequence[str] | None = None, *, windowed: bool = False) -> int:
     preview.add_argument('--topmost', action='store_const', const=True, default=None)
     commands.add_parser(
         'diagnose-search-shortcut',
-        help='Test the configured search shortcut and Explorer folder selection',
+        help='Test the Search & filter quick-window shortcut and Explorer folder selection',
     )
     filters = commands.add_parser(
         'filter', help='Filter local files recursively',
@@ -195,7 +194,7 @@ def main(argv: Sequence[str] | None = None, *, windowed: bool = False) -> int:
         if args.command == 'diagnose-search-shortcut':
             from offlook.diagnostics import run_search_shortcut_diagnostic
 
-            return run_search_shortcut_diagnostic(context.config.current.search_hotkey)
+            return run_search_shortcut_diagnostic(context.config.current.filter_hotkey)
     except (OffLookError, OSError, UnicodeError, ImportError, RuntimeError) as exc:
         print(f'OffLook: {exc}', file=sys.stderr)
         return 2

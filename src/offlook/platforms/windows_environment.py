@@ -1,4 +1,4 @@
-"""Explicit, per-user PATH integration for the current installed OffLook command."""
+"""Explicit, per-user PATH integration for the current OffLook installation."""
 
 import ctypes
 from ctypes import wintypes
@@ -27,6 +27,7 @@ class PathUpdateResult:
 _INSTALL_HINT = "Reinstall using the current Python: py -m pip install --user --only-binary=:all: -e ."
 _INSTALLER_KEY = r'Software\OffLook\Installer'
 _OWNED_DIRECTORY = 'PathOwnedDirectory'
+_PYTHON_PATH_KEY = r'Software\OffLook\Path'
 
 
 def resolve_offlook_scripts_dir() -> Path:
@@ -59,7 +60,7 @@ def resolve_offlook_scripts_dir() -> Path:
 def _registry() -> ModuleType:
     """Import the registry only for an explicitly requested Windows operation."""
     if sys.platform != "win32":
-        raise OffLookError("Adding to PATH is supported only on Windows")
+        raise OffLookError("User PATH integration is supported only on Windows")
     import winreg
 
     return winreg
@@ -119,6 +120,13 @@ def _broadcast_environment_change() -> bool:
         return False
 
 
+def _path_owner(directory: Path) -> tuple[str, str]:
+    """Keep the installer marker compatible; Python installs track each Scripts directory."""
+    if getattr(sys, 'frozen', False):
+        return _INSTALLER_KEY, _OWNED_DIRECTORY
+    return _PYTHON_PATH_KEY, _normalized_entry(str(directory))
+
+
 def add_offlook_to_user_path(*, registry_path: str = "Environment") -> PathUpdateResult:
     """Append this installation to HKCU PATH on explicit request and update this process.
 
@@ -149,10 +157,11 @@ def add_offlook_to_user_path(*, registry_path: str = "Environment") -> PathUpdat
             merged, changed = _merge_path(latest, scripts_dir)
             if changed:
                 registry.SetValueEx(key, "Path", 0, value_type, merged)
-        if changed and getattr(sys, 'frozen', False) and registry_path == 'Environment':
-            with registry.CreateKeyEx(registry.HKEY_CURRENT_USER, _INSTALLER_KEY, 0,
+        if changed and registry_path == 'Environment':
+            owner_key, owner_value = _path_owner(scripts_dir)
+            with registry.CreateKeyEx(registry.HKEY_CURRENT_USER, owner_key, 0,
                                       registry.KEY_SET_VALUE) as owner:
-                registry.SetValueEx(owner, _OWNED_DIRECTORY, 0, registry.REG_SZ, str(scripts_dir))
+                registry.SetValueEx(owner, owner_value, 0, registry.REG_SZ, str(scripts_dir))
         process_path, process_changed = _merge_path(os.environ.get("PATH", ""), scripts_dir)
         if process_changed:
             os.environ["PATH"] = process_path
@@ -168,31 +177,54 @@ def add_offlook_to_user_path(*, registry_path: str = "Environment") -> PathUpdat
     return PathUpdateResult(scripts_dir, changed, broadcast_ok, conflicting_executable)
 
 
-def _remove_owned_path(directory: Path) -> None:
+def _remove_owned_path(directory: Path) -> PathUpdateResult:
     registry = _registry()
+    owner_key, owner_value = _path_owner(directory)
+    unchanged = PathUpdateResult(directory, False, True, None)
     try:
-        with registry.OpenKey(registry.HKEY_CURRENT_USER, _INSTALLER_KEY, 0,
-                              registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE) as owner:
-            owned, _ = registry.QueryValueEx(owner, _OWNED_DIRECTORY)
-            normalized = _normalized_entry(str(directory))
-            if not isinstance(owned, str) or _normalized_entry(owned) != normalized:
-                return
-            try:
-                with registry.OpenKey(registry.HKEY_CURRENT_USER, 'Environment', 0,
-                                      registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE) as key:
-                    value, value_type = _read_path(registry, key)
-                    entries = value.split(';')
-                    for index in range(len(entries) - 1, -1, -1):
-                        if _normalized_entry(entries[index]) == normalized:
-                            del entries[index]
-                            registry.SetValueEx(key, 'Path', 0, value_type, ';'.join(entries))
-                            break
-            except FileNotFoundError:
-                pass
-            registry.DeleteValue(owner, _OWNED_DIRECTORY)
+        owner = registry.OpenKey(registry.HKEY_CURRENT_USER, owner_key, 0,
+                                 registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE)
     except FileNotFoundError:
-        return
-    _broadcast_environment_change()
+        return unchanged
+    with owner:
+        try:
+            owned, _ = registry.QueryValueEx(owner, owner_value)
+        except FileNotFoundError:
+            return unchanged
+        normalized = _normalized_entry(str(directory))
+        if not isinstance(owned, str) or _normalized_entry(owned) != normalized:
+            return unchanged
+        changed = False
+        try:
+            key = registry.OpenKey(registry.HKEY_CURRENT_USER, 'Environment', 0,
+                                   registry.KEY_QUERY_VALUE | registry.KEY_SET_VALUE)
+        except FileNotFoundError:
+            pass
+        else:
+            with key:
+                value, value_type = _read_path(registry, key)
+                entries = value.split(';')
+                for index in range(len(entries) - 1, -1, -1):
+                    if _normalized_entry(entries[index]) == normalized:
+                        del entries[index]
+                        registry.SetValueEx(key, 'Path', 0, value_type, ';'.join(entries))
+                        changed = True
+                        break
+        registry.DeleteValue(owner, owner_value)
+    broadcast_ok = _broadcast_environment_change() if changed else True
+    return PathUpdateResult(directory, changed, broadcast_ok, None)
+
+
+def remove_offlook_from_user_path() -> PathUpdateResult:
+    """Remove only the user PATH entry recorded as added by the current installation.
+
+    Leave existing process environments alone: they may include an identical
+    machine PATH entry. Reopen terminals to pick up the saved user PATH.
+    """
+    try:
+        return _remove_owned_path(resolve_offlook_scripts_dir())
+    except (OSError, ValueError) as exc:
+        raise OffLookError("Cannot change the user PATH; check registry access permissions") from exc
 
 
 def remove_frozen_install_integration() -> None:

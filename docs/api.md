@@ -94,9 +94,8 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | --- | --- |
 | max_file_size_bytes | 10,485,760 bytes |
 | preview_timeout_seconds | 5 seconds |
-| hotkey_enabled | True; shared gate for all six global shortcuts |
+| hotkey_enabled | True; shared gate for all five global shortcuts |
 | hotkey | Ctrl+Space; Preview shortcut |
-| search_hotkey | Ctrl+Q; opens the main Search & filter page with the selected folder, without scanning |
 | diff_hotkey | Ctrl+Alt+D; Compare files shortcut |
 | convert_hotkey | Alt+C; opens the **Convert to** dropdown dialog |
 | filter_hotkey | Ctrl+Alt+F; opens only the Search & filter quick window for a valid Explorer folder, without scanning |
@@ -109,11 +108,11 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 
 On Windows, save a key with `context.config.update(config, persist=True, ai_key_action='replace', ai_key=key)`. Use `ai_key_action='clear'` to remove it. Ordinary config loads do not read the vault or migrate legacy keys. A key is bound to its profile path and endpoint; pass a new key when changing endpoints.
 
-All six combinations are canonicalized with `parse_hotkey` and must be distinct even when `hotkey_enabled` is false. Loading an older configuration does not rewrite it. For a missing `filter_hotkey`, the first unused candidate is chosen from `Ctrl+Alt+F`, `Ctrl+Alt+Shift+F`, `Ctrl+Alt+G`, `Ctrl+Alt+Shift+G`, `Ctrl+Alt+J`, `Ctrl+Alt+Shift+J`. Then, if `ai_hotkey` is missing, the first unused candidate is chosen from `Ctrl+Alt+Shift+A`, `Ctrl+Alt+A`, `Ctrl+Alt+Shift+I`, `Ctrl+Alt+I`, `Ctrl+Alt+Shift+K`, `Ctrl+Alt+K`. Existing explicit bindings are preserved; invalid or duplicate values raise `ConfigError`. OS registration conflicts do not trigger a different binding.
+All five combinations are canonicalized with `parse_hotkey` and must be distinct even when `hotkey_enabled` is false. Loading an older configuration does not rewrite it. The former main-window `search_hotkey` is ignored. For a missing `filter_hotkey`, the first unused candidate is chosen from `Ctrl+Alt+F`, `Ctrl+Alt+Shift+F`, `Ctrl+Alt+G`, `Ctrl+Alt+Shift+G`, `Ctrl+Alt+J`, `Ctrl+Alt+Shift+J`. Then, if `ai_hotkey` is missing, the first unused candidate is chosen from `Ctrl+Alt+Shift+A`, `Ctrl+Alt+A`, `Ctrl+Alt+Shift+I`, `Ctrl+Alt+I`, `Ctrl+Alt+Shift+K`, `Ctrl+Alt+K`. Existing explicit bindings for these five actions are preserved; invalid or duplicate values raise `ConfigError`. OS registration conflicts do not trigger a different binding.
 
 In a running main window, `config.changed` reconciles the shortcut fields and shared gate; external JSON edits are not watched. `launch_preview` does not register global shortcuts. See [shortcut settings](getting-started.md#4-customize-global-shortcuts) for recording and registration behavior.
 
-`offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes it without focusing it and preserves its scroll position. OffLook supplies `preview`, `search`, `diff`, `convert`, `filter`, and `ai` with their rendered registration statuses. An omitted `ai` entry is shown as not registered.
+`offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes it without focusing it and preserves its scroll position. OffLook supplies `preview`, `diff`, `convert`, `filter`, and `ai` with their rendered registration statuses. An omitted `ai` entry is shown as not registered.
 
 `events.subscribe(topic, callback)` returns an unsubscribe function. The callback receives Event(topic, payload) synchronously on the publishing thread.
 
@@ -194,6 +193,6 @@ RenderRequest's max_width/max_height are target dimensions in physical pixels. P
 
 ## System integration and errors
 
-`StartupManager` manages the current user's sign-in startup setting. `add_offlook_to_user_path()` adds only the current installation's Scripts directory to the user PATH. For command behavior and exit codes, see the [command-line reference](getting-started.md#7-command-line-reference).
+`StartupManager` manages the current user's sign-in startup setting. `add_offlook_to_user_path()` adds the current installation directory (or Python Scripts directory) to the user PATH. `remove_offlook_from_user_path()` removes it only if OffLook recorded adding it for that installation. For command behavior and exit codes, see the [command-line reference](getting-started.md#7-command-line-reference).
 
 `OffLookError` subclasses include `ConfigError`, `FileAccessError`, `PreviewError`, `HotkeyError`, `ExtensionError`, `ConversionError`, and `AiError`.

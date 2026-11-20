@@ -62,7 +62,6 @@ class PreviewApplication:
 
     SHORTCUT_ACTIONS = {
         'preview': ('hotkey', 'action.preview'),
-        'search': ('search_hotkey', 'action.search'),
         'diff': ('diff_hotkey', 'action.diff'),
         'convert': ('convert_hotkey', 'action.convert'),
         'filter': ('filter_hotkey', 'action.filter'),
@@ -346,9 +345,8 @@ class PreviewApplication:
         self.search_button.pack(anchor='w')
         self.search_entry.bind('<Return>', self._search_from_entry)
         self._card_label(criteria, textvariable=self.search_status, pady=(8, 0))
-        for action in ('search', 'filter'):
-            self._card_label(criteria, text=tr(self.SHORTCUT_ACTIONS[action][1]), pady=(4, 0))
-            self._card_label(criteria, textvariable=self.shortcut_statuses[action])
+        self._card_label(criteria, text=tr(self.SHORTCUT_ACTIONS['filter'][1]), pady=(4, 0))
+        self._card_label(criteria, textvariable=self.shortcut_statuses['filter'])
         self._card_label(criteria, textvariable=self.filter_shortcut_feedback)
         self.search_tree = build_result_table(content, self._open_search_result, scale=self._scale)
         self.search_tree.bind('<Return>', self._open_selected_search_result)
@@ -475,8 +473,15 @@ class PreviewApplication:
         integration = self._card(content, tr('card.integration'))
         ttk.Checkbutton(integration, text=tr('check.autostart'), variable=self.autostart,
                         command=self._toggle_startup).pack(anchor='w', pady=4)
-        self.path_button = ttk.Button(integration, text=tr('btn.add_path'), command=self._add_path)
-        self.path_button.pack(anchor='w', pady=(8, 0))
+        path_row = ttk.Frame(integration, style='Card.TFrame')
+        path_row.pack(anchor='w', pady=(8, 0))
+        self._path_buttons = (
+            ttk.Button(path_row, text=tr('btn.add_path'), command=self._change_path),
+            ttk.Button(path_row, text=tr('btn.remove_path'), command=lambda: self._change_path(remove=True)),
+        )
+        for button in self._path_buttons:
+            button.pack(side='left', padx=(0, 8))
+        self._set_path_busy(self._path_thread is not None)
 
     def _bind_mousewheel(self):
         """Route wheel gestures over the work area to the active page's canvas.
@@ -600,16 +605,12 @@ class PreviewApplication:
         if self.closing or self._search_thread is not None:
             return
         folder = filedialog.askdirectory(parent=self.root)
-        if folder and not self.closing and self._search_thread is None:
-            self._prepare_search_folder(folder, status_key='status.search.ready')
-
-    def _prepare_search_folder(self, folder: str, *, status_key: str) -> None:
-        if folder == self.search_folder.get():
+        if not folder or self.closing or self._search_thread is not None or folder == self.search_folder.get():
             return
         self.search_folder.set(folder)
         self._search_cache = ()
         fill_results(self.search_tree, ())
-        self.search_status.set(tr(status_key))
+        self.search_status.set(tr('status.search.ready'))
 
     def _set_search_busy(self, busy: bool) -> None:
         for control in (self.search_folder_button, self.search_entry, *self.search_checks, self.search_button):
@@ -954,7 +955,7 @@ class PreviewApplication:
             (self.diff_status, 'status.diff.default'),
             (self.convert_status, 'status.convert.default'),
             *((self.search_status, f'status.search.{state}')
-              for state in ('default', 'ready', 'no_folder', 'running', 'explorer')),
+              for state in ('default', 'ready', 'no_folder', 'running')),
             *((self.ai_status, f'status.ai.{state}')
               for state in ('default', 'no_instruction', 'no_key', 'running', 'finished')),
         )
@@ -971,7 +972,6 @@ class PreviewApplication:
         if self.help_window is not None and self.help_window.winfo_exists():
             self.help_window.destroy()
         self.help_window = None
-        path_busy = self.path_button.instate(['disabled'])
         self._main_shell.destroy()
         self._build_main()
         self._apply_saved_toggles()
@@ -979,8 +979,6 @@ class PreviewApplication:
         self._refresh_hotkey_status()
         self._repopulate_results(previous)
         self._build_ai_quick_body()
-        if path_busy:
-            self.path_button.state(['disabled'])
 
     def _apply_saved_toggles(self):
         """Re-apply control states the rebuilt widgets cannot infer on their own."""
@@ -1398,20 +1396,28 @@ class PreviewApplication:
                 self._reconcile_hotkeys()
         self._settings_busy()
 
-    def _add_path(self):
-        """Run add-only user PATH registration away from the Tk thread."""
-        if self._path_thread and self._path_thread.is_alive():
+    def _set_path_busy(self, busy: bool) -> None:
+        for button in self._path_buttons:
+            button.state(['disabled' if busy else '!disabled'])
+
+    def _change_path(self, *, remove: bool = False) -> None:
+        """Update the user PATH away from the Tk thread, one operation at a time."""
+        if self.closing or self._path_thread is not None:
             return
-        from offlook.platforms.windows_environment import add_offlook_to_user_path
-        self.path_button.state(['disabled'])
+        from offlook.platforms.windows_environment import (
+            add_offlook_to_user_path, remove_offlook_from_user_path,
+        )
+        action = remove_offlook_from_user_path if remove else add_offlook_to_user_path
+        self._set_path_busy(True)
         self.status.set(tr('status.path.updating'))
+
         def work():
-            """Return native results through a queue without touching Tk."""
             try:
-                self._path_results.put((add_offlook_to_user_path(),None))
+                self._path_results.put((remove, action(), None))
             except Exception as exc:
-                self._path_results.put((None,str(exc)))
-        self._path_thread=threading.Thread(target=work,name='OffLookPath',daemon=True)
+                self._path_results.put((remove, None, str(exc)))
+
+        self._path_thread = threading.Thread(target=work, name='OffLookPath', daemon=True)
         self._path_thread.start()
 
     def open(self,path: str|Path)->None:
@@ -1464,8 +1470,8 @@ class PreviewApplication:
             if action == 'preview' and hwnd == preview_hwnd:
                 self._hotkey(hwnd)
             return
-        {'preview': self._hotkey, 'search': self._search_hotkey,
-         'diff': self._diff_hotkey, 'convert': self._convert_hotkey, 'filter': self._filter_hotkey}[action](hwnd)
+        {'preview': self._hotkey, 'diff': self._diff_hotkey,
+         'convert': self._convert_hotkey, 'filter': self._filter_hotkey}[action](hwnd)
 
     def _hotkey(self, hwnd):
         """Toggle this preview or resolve a foreground Shell file."""
@@ -1474,10 +1480,6 @@ class PreviewApplication:
             self.close_preview()
             return
         self._begin_selection('preview', hwnd)
-
-    def _search_hotkey(self, hwnd):
-        """Prepare the selected Explorer folder without starting a search."""
-        self._begin_selection('search', hwnd)
 
     def _filter_hotkey(self, hwnd: int) -> None:
         if self.closing:
@@ -1503,7 +1505,7 @@ class PreviewApplication:
         self.generation += 1
         self.selection_hwnd, self.selection_mode = hwnd, action
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current,
-                                            allow_folder=action in ('search', 'filter'),
+                                            allow_folder=action == 'filter',
                                             multiple=action in ('convert', 'diff'),
                                             strict_pair=action == 'diff'))
 
@@ -1520,10 +1522,7 @@ class PreviewApplication:
         if action == 'filter':
             message = message or tr('status.selection.no_folder')
         text = tr('status.hotkey.label', label=label, message=message)
-        if action == 'search':
-            status = self.search_status if self._search_thread is None else self.status
-            status.set(text)
-        elif action == 'diff':
+        if action == 'diff':
             self.diff_status.set(text)
         elif action == 'convert':
             self.convert_status.set(text)
@@ -1558,13 +1557,6 @@ class PreviewApplication:
                     self._start_comparison(*sorted(paths, key=lambda p: (str(p).casefold(), str(p))))
             elif result['data'].path is None:
                 self._selection_feedback(action, result['data'].reason)
-            elif action == 'search':
-                if self._search_thread is None:
-                    self._prepare_search_folder(str(result['data'].path), status_key='status.search.explorer')
-                self._select_main_page('search')
-                self._show()
-                if self._search_thread is None:
-                    self.root.after_idle(self._focus_search)
             elif action == 'filter':
                 self.filter_shortcut_feedback.set('')
                 self.open_filter(result['data'].path)
@@ -1573,11 +1565,6 @@ class PreviewApplication:
         finally:
             if self.preview is not None and self.preview is previous_preview:
                 self.preview.set_render_suspended(False)
-
-    def _focus_search(self):
-        if not self.closing and self._main_page == 'search' and self._search_thread is None:
-            self.search_entry.focus_set()
-            self.search_entry.selection_range(0, 'end')
 
     def _convert_hotkey(self, hwnd):
         """Collect every selected Explorer file for the conversion dialog."""
@@ -1595,15 +1582,20 @@ class PreviewApplication:
                     self.status.set(self.tray.last_error)
         self._poll_hotkeys()
         try:
-            result,error=self._path_results.get_nowait()
+            remove, result, error = self._path_results.get_nowait()
         except queue.Empty:
             pass
         else:
-            self.path_button.state(['!disabled'])
-            if error: self.status.set(error)
+            self._path_thread = None
+            self._set_path_busy(False)
+            if error is not None:
+                self.status.set(error)
             else:
-                message = (tr('status.path.added', dir=result.scripts_dir) if result.changed
-                           else tr('status.path.exists', dir=result.scripts_dir))
+                if remove:
+                    status = 'status.path.removed' if result.changed else 'status.path.not_owned'
+                else:
+                    status = 'status.path.added' if result.changed else 'status.path.exists'
+                message = tr(status, dir=result.scripts_dir)
                 if not result.broadcast_ok: message += tr('status.path.broadcast')
                 if result.conflicting_executable:
                     message += tr('status.path.conflict', exe=result.conflicting_executable)

@@ -85,8 +85,6 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "status.search.no_folder": ("Choose a folder first.", "請先選擇資料夾。"),
     "status.search.running": ("Searching…", "搜尋中…"),
     "status.search.found": ("{n} file(s) found.", "找到 {n} 個檔案。"),
-    "status.search.explorer": ("Folder selected from File Explorer. Click Search when ready.",
-                               "已從檔案總管選擇資料夾。準備好後按「搜尋」。"),
     "filter.dialog.close": ("Close", "關閉"),
 
     # AI card
@@ -127,7 +125,6 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Shortcut card
     "check.enable_shortcuts": ("Enable global shortcuts", "啟用全域快捷鍵"),
     "action.preview": ("Preview", "預覽"),
-    "action.search": ("Search & filter (main window)", "搜尋與篩選（主視窗）"),
     "action.diff": ("Compare files", "檔案比對"),
     "action.convert": ("Convert files", "檔案轉換"),
     "action.filter": ("Search & filter (quick window)", "搜尋與篩選（小視窗）"),
@@ -172,12 +169,17 @@ _TEXTS: dict[str, tuple[str, str]] = {
     # Integration card
     "check.autostart": ("Start when signing in to Windows", "登入 Windows 時自動啟動"),
     "btn.add_path": ("Add to PATH", "加入 PATH"),
+    "btn.remove_path": ("Remove from PATH", "從 PATH 移除"),
     "status.startup.on": ("Start at sign-in enabled", "已啟用登入時自動啟動"),
     "status.startup.off": ("Start at sign-in disabled", "已停用登入時自動啟動"),
     "status.path.updating": ("Updating user PATH…", "正在更新使用者 PATH…"),
     "status.path.added": ("Added to PATH: {dir}. Reopen PowerShell / Windows Terminal.",
                           "已加入 PATH：{dir}。請重開 PowerShell / Windows Terminal。"),
     "status.path.exists": ("Already in PATH: {dir}.", "PATH 中已存在：{dir}。"),
+    "status.path.removed": ("Removed from PATH: {dir}. Reopen PowerShell / Windows Terminal.",
+                            "已從 PATH 移除：{dir}。請重開 PowerShell / Windows Terminal。"),
+    "status.path.not_owned": ("No PATH entry added by this OffLook installation was found; nothing changed.",
+                              "找不到此 OffLook 安裝所加入的 PATH 項目；未做任何變更。"),
     "status.path.broadcast": (" Environment update notification failed.",
                               "（環境變數更新通知失敗。）"),
     "status.path.conflict": (" Another installation takes precedence: {exe}; run the command from the installation directory above.",
