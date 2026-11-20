@@ -19,8 +19,8 @@ In "Search files", choose a local folder and optionally enter part of a filename
 The search includes subfolders but does not follow links or network folders. Double-click a result to preview it.
 In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook loads the folder and focuses the filename field; it does not run a search until you click "Search". A selected regular file or multiple items is an error, not a request to search the parent folder.
 
-Git comparison
-The separate "Git comparison" card contains "Compare with Git HEAD". Select a tracked text file there, or select it in File Explorer and press the configured Git comparison shortcut (default: Ctrl+Alt+D). The window compares the working file with HEAD line by line and highlights added, deleted, and modified lines.
+File comparison
+The separate "File comparison" card contains "Compare two files". Choose the first and second UTF-8 text files, or select exactly two local files in File Explorer and press the configured Compare files shortcut (default: Ctrl+Alt+D). The window compares the files line by line and highlights added green, deleted red, and modified amber lines.
 Office and OpenDocument files are identified for searching, but OffLook shows their metadata instead of parsing their contents.
 
 Converting files
@@ -38,7 +38,7 @@ Use the "中文 / English" buttons at the top-right of the main window. The choi
 Current global shortcuts
 Preview: {preview}
 Search files: {search}
-Git comparison: {diff}
+Compare files: {diff}
 Convert files: {convert}
 This summary updates when shortcut registration changes. An active key can differ from the configured key if a replacement fails.
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.
@@ -50,10 +50,10 @@ The mouse wheel scrolls the main window and each preview window from anywhere in
 When you enlarge the window or move it to a higher-DPI display, images and PDFs are rendered again with more physical pixels, rather than repeatedly enlarging the old image.
 
 Shortcut settings and conflicts
-Choose Preview, Search files, Git comparison, or Convert files in the action selector. Each action keeps its own draft. Click "Record shortcut", press a combination inside OffLook, then click "Apply" to save only the selected action. Esc cancels recording; switching actions cancels unfinished recording. "Reset default" changes only the selected draft and also requires Apply.
+Choose Preview, Search files, Compare files, or Convert files in the action selector. Each action keeps its own draft. Click "Record shortcut", press a combination inside OffLook, then click "Apply" to save only the selected action. Esc cancels recording; switching actions cancels unfinished recording. "Reset default" changes only the selected draft and also requires Apply.
 "Enable global shortcuts" applies immediately to all four actions, independently of Apply. Disabling releases all keys; enabling attempts each saved key independently. A key that another application owns is shown as Unavailable, while the other actions can still work.
 Combinations must be different for all four actions, even while disabled. If registration or saving fails, the previous active key remains; the proposed draft is kept for correction or retry. Release an occupied key in the other application, then Apply again, or choose another combination. Changing externally configured keys does not implicitly swap active registrations: use an intermediate unused key to release the old one.
-Recording does not activate a shortcut or execute a feature, including when you press an already-registered Search files or Git comparison key over OffLook's main window.
+Recording does not activate a shortcut or execute a feature, including when you press an already-registered Search files or Compare files key over OffLook's main window.
 Win-key combinations, F12, single keys, and reserved combinations such as Alt+F4 are not supported. Choose a combination with Ctrl or Alt, optionally Shift.
 
 Add to PATH
@@ -79,8 +79,8 @@ _HELP_ZH = """選擇要預覽的檔案
 搜尋會包含子資料夾，但不會跟隨連結或網路資料夾。在結果上雙擊即可預覽。
 在檔案總管中選取一個本機資料夾（或開啟資料夾且未選取任何項目），再按「檔案搜尋」快捷鍵（預設 Ctrl+Q）。OffLook 會載入該資料夾並把游標放到檔名欄，在你按「搜尋」之前不會真的開始搜尋。若選取的是單一檔案或多個項目，會視為錯誤，不會改成搜尋上層資料夾。
 
-Git 比對
-「Git 比對」卡片內有「與 Git HEAD 比對」。可在該處選擇一個受 Git 追蹤的文字檔，或在檔案總管選取後按「Git 比對」快捷鍵（預設 Ctrl+Alt+D）。比對視窗會逐行顯示工作檔案與 HEAD 版本的差異，並以顏色標示新增、刪除與修改。
+檔案比對
+「檔案比對」卡片內有「比對兩個檔案」。可依序選擇兩個 UTF-8 文字檔，或在檔案總管選取兩個本機檔案後按「檔案比對」快捷鍵（預設 Ctrl+Alt+D）。比對視窗會逐行顯示差異，並以綠色標示新增、紅色標示刪除、琥珀色標示修改。
 Office 與 OpenDocument 檔案會被辨識（供搜尋分類用），但 OffLook 只顯示中介資料，不會解析內容。
 
 轉換檔案

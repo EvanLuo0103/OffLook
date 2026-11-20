@@ -62,10 +62,10 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 | --- | --- |
 | max_file_size_bytes | 10,485,760 bytes |
 | preview_timeout_seconds | 5 seconds |
-| hotkey_enabled | True; shared enable gate for Preview, Search files, Git comparison, and Convert files |
+| hotkey_enabled | True; shared enable gate for Preview, Search files, File comparison, and Convert files |
 | hotkey | Ctrl+Space; Preview shortcut |
 | search_hotkey | Ctrl+Q; prepares a local folder for Search files without starting a search |
-| diff_hotkey | Ctrl+Alt+D; Git comparison shortcut |
+| diff_hotkey | Ctrl+Alt+D; Compare files shortcut |
 | convert_hotkey | Alt+C; conversion wheel shortcut |
 | convert_mode | auto; also text (text-only) and office (require LibreOffice) |
 | always_on_top | False |
@@ -75,7 +75,7 @@ Callbacks run synchronously. Duplicate names, unregistered actions, and callback
 
 The four combinations are canonicalized with `parse_hotkey` and must be pairwise distinct even when `hotkey_enabled` is false. Invalid syntax raises `ConfigError` with its `HotkeyError` cause; duplicate errors name both conflicting fields. Missing shortcut fields in old JSON use defaults without rewriting the file; existing collisions are configuration errors, not silently reset. These combinations are defaults, not permanently reserved keys.
 
-The resident GUI's **Enable global shortcuts** switch immediately persists the shared gate. Its Preview / Search files / Git comparison / Convert files selector maintains separate drafts; **Apply** saves only the selected key. While enabled, a replacement is registered before saving, and the old active key remains on registration or persistence failure. While disabled, Apply only saves. External updates reconcile only shortcut fields and the shared gate; other settings do not rebind keys. Each action registers independently, and statuses distinguish configured keys from active registrations. An external cross-action swap requires an intermediate unused combination rather than an unregister-first swap. `launch_preview` and the single-file CLI command register no global shortcuts.
+The resident GUI's **Enable global shortcuts** switch immediately persists the shared gate. Its Preview / Search files / Compare files / Convert files selector maintains separate drafts; **Apply** saves only the selected key. While enabled, a replacement is registered before saving, and the old active key remains on registration or persistence failure. While disabled, Apply only saves. External updates reconcile only shortcut fields and the shared gate; other settings do not rebind keys. Each action registers independently, and statuses distinguish configured keys from active registrations. An external cross-action swap requires an intermediate unused combination rather than an unregister-first swap. `launch_preview` and the single-file CLI command register no global shortcuts.
 
 `offlook.ui.help.show_help(parent, *, shortcuts)` creates the offline Help window; `update_help_shortcuts(window, *, shortcuts)` refreshes its text in place without focusing it and preserves its scroll position. Both accept a mapping with `preview`, `search`, `diff`, and `convert` keys containing the rendered registration statuses.
 

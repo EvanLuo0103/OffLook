@@ -39,7 +39,7 @@ The **Search files** card searches a selected local folder and its subfolders wi
 
 In File Explorer, select one local folder, or open a local folder with nothing selected, and press the **Search files** shortcut (default: **Ctrl+Q**). OffLook loads that folder, scrolls the Search files card into view, and focuses the filename field. It does not search until you click **Search**. A selected regular file or multiple items produces an error; OffLook does not silently use a file's parent folder.
 
-The separate **Git comparison** card compares a tracked text file with its latest committed Git version. Click **Compare with Git HEAD**, or select the file in File Explorer and press the **Git comparison** shortcut (default: **Ctrl+Alt+D**). The comparison window highlights added, deleted, and modified lines. Git comparison supports UTF-8 text files up to 2,000,000 bytes.
+The separate **File comparison** card compares two UTF-8 text files. Click **Compare two files**, or select exactly two files in File Explorer and press the **Compare files** shortcut (default: **Ctrl+Alt+D**). The comparison window highlights added lines in green, deleted lines in red, and modified lines in amber. Each file is limited to 2,000,000 bytes.
 
 To diagnose the configured Search files shortcut without opening the GUI, first exit the main app and any other instance using that key, then run:
 
@@ -52,9 +52,9 @@ Use the second form with your actual configuration path to test a custom key. Th
 
 ## 4. Customize global shortcuts
 
-Keep OffLook running, select one file in File Explorer or on the desktop, and press the **Preview** shortcut (default: **Ctrl+Space**) to preview it. Pressing its shortcut again over that preview closes it. Search files and Git comparison have separate configurable keys; the three combinations above are defaults, not reserved keys.
+Keep OffLook running, select one file in File Explorer or on the desktop, and press the **Preview** shortcut (default: **Ctrl+Space**) to preview it. Pressing its shortcut again over that preview closes it. Search files and file comparison have separate configurable keys; the four combinations are defaults, not reserved keys.
 
-In **Shortcut settings**, choose exactly one action: **Preview**, **Search files**, or **Git comparison**. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft, so switching away and back preserves completed edits without saving them. Esc cancels recording; switching actions also cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an already-active key over the main window captures it without executing its feature.
+In **Shortcut settings**, choose exactly one action: **Preview**, **Search files**, **Compare files**, or **Convert files**. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft, so switching away and back preserves completed edits without saving them. Esc cancels recording; switching actions also cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an already-active key over the main window captures it without executing its feature.
 
 **Enable global shortcuts** applies immediately to all three actions, independently of the selected-key Apply button. Disabling releases every global key without disabling manual preview, search, or comparison controls. Enabling attempts all three saved keys independently; an occupied key makes only that action **Unavailable**. Controls are temporarily disabled while registrations settle.
 
@@ -73,7 +73,7 @@ Enable **Start when signing in to Windows** to launch in the background the next
 py -m offlook --background
 ```
 
-The **Help** button or F1 opens the offline guide with live status for all three shortcuts. If a shortcut does not respond, check its status, that OffLook is running, and that File Explorer is in the foreground. Preview and Git comparison require one selected file; Search files accepts one selected folder or the current folder with nothing selected. An input method may reserve a combination; change it or use the manual controls.
+The **Help** button or F1 opens the offline guide with live status for all shortcuts. If a shortcut does not respond, check its status, that OffLook is running, and that File Explorer is in the foreground. Preview requires one selected file; file comparison requires exactly two selected files; Search files accepts one selected folder or the current folder with nothing selected. An input method may reserve a combination; change it or use the manual controls.
 
 ## 6. Convert, filter, and use AI
 

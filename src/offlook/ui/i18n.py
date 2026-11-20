@@ -28,7 +28,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
 
     # Cards
     "card.preview": ("Quick preview", "快速預覽"),
-    "card.git": ("Git comparison", "Git 比對"),
+    "card.compare": ("File comparison", "檔案比對"),
     "card.convert": ("Convert files", "檔案轉換"),
     "card.search": ("Search files", "檔案搜尋"),
     "card.filter": ("Filter files", "檔案篩選"),
@@ -40,16 +40,16 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "btn.choose_file": ("Choose file", "選擇檔案"),
 
     # Git card
-    "btn.compare_head": ("Compare with Git HEAD", "與 Git HEAD 比對"),
-    "status.diff.default": ("Select a tracked text file to compare with Git HEAD.",
-                            "選擇一個受 Git 追蹤的文字檔，與 HEAD 版本比對。"),
-    "status.diff.choosing": ("Choose a file in the file picker…", "請在檔案選擇視窗挑選檔案…"),
+    "btn.compare_files": ("Compare two files", "比對兩個檔案"),
+    "status.diff.default": ("Select two UTF-8 text files to compare.",
+                            "選擇兩個 UTF-8 文字檔進行比對。"),
+    "status.diff.choosing": ("Choose the first file in the file picker…", "請在檔案選擇視窗挑選第一個檔案…"),
     "status.diff.selected": ("Selected: {name}. Comparing…", "已選擇 {name}，比對中…"),
-    "status.diff.cancelled": ("Git comparison cancelled.", "已取消 Git 比對。"),
-    "status.diff.running": ("Comparing the working file with Git HEAD…", "正在比對工作檔案與 Git HEAD…"),
-    "status.diff.ready": ("Git comparison ready", "Git 比對完成"),
+    "status.diff.cancelled": ("File comparison cancelled.", "已取消檔案比對。"),
+    "status.diff.running": ("Comparing the two files…", "正在比對兩個檔案…"),
+    "status.diff.ready": ("File comparison ready", "檔案比對完成"),
     "status.diff.differences": ("Differences found.", "發現差異。"),
-    "status.diff.same": ("No differences from Git HEAD.", "與 Git HEAD 版本相同。"),
+    "status.diff.same": ("No differences between the files.", "兩個檔案沒有差異。"),
 
     # Convert card
     "btn.choose_convert": ("Choose files to convert", "選擇要轉換的檔案"),
@@ -114,7 +114,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "check.enable_shortcuts": ("Enable global shortcuts", "啟用全域快捷鍵"),
     "action.preview": ("Preview", "預覽"),
     "action.search": ("Search files", "檔案搜尋"),
-    "action.diff": ("Git comparison", "Git 比對"),
+    "action.diff": ("Compare files", "檔案比對"),
     "action.convert": ("Convert files", "檔案轉換"),
     "btn.record": ("Record shortcut", "錄製快捷鍵"),
     "btn.apply": ("Apply", "套用"),
@@ -150,6 +150,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "status.selection.focus_changed": ("Foreground focus changed; selection cancelled.",
                                        "前景視窗已改變，已取消選取。"),
     "status.selection.no_files": ("No local files selected", "未選取任何本機檔案"),
+    "status.selection.two_files": ("Select exactly two local files to compare.", "請選取兩個本機檔案進行比對。"),
 
     # Integration card
     "check.autostart": ("Start when signing in to Windows", "登入 Windows 時自動啟動"),
@@ -230,9 +231,9 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "help.subtitle": ("Offline file previews and system integration", "離線檔案預覽與系統整合"),
 
     # Diff window
-    "diff.title": ("Git comparison — {name}", "Git 比對 — {name}"),
-    "diff.heading": ("{name} — working tree vs HEAD", "{name} — 工作目錄 vs HEAD"),
-    "diff.subtitle": ("Working tree compared with HEAD", "工作目錄與 HEAD 版本比對"),
+    "diff.title": ("File comparison — {name}", "檔案比對 — {name}"),
+    "diff.heading": ("Comparison: {name}", "比對：{name}"),
+    "diff.subtitle": ("Two files compared line by line", "逐行比對兩個檔案"),
     "diff.legend": ("Added green · deleted red · modified amber",
                     "新增＝綠色 · 刪除＝紅色 · 修改＝琥珀色"),
     "diff.empty": ("No line differences.", "沒有行層級的差異。"),

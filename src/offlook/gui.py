@@ -209,8 +209,8 @@ class PreviewApplication:
         primary = self._card(content, tr('card.preview'))
         ttk.Button(primary, text=tr('btn.choose_file'), style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
         ttk.Label(primary, textvariable=self.shortcut_statuses['preview'], style='Card.TLabel', wraplength=560).pack(anchor='w')
-        comparison = self._card(content, tr('card.git'))
-        ttk.Button(comparison, text=tr('btn.compare_head'), command=self._choose_for_diff).pack(anchor='w', pady=8)
+        comparison = self._card(content, tr('card.compare'))
+        ttk.Button(comparison, text=tr('btn.compare_files'), command=self._choose_for_diff).pack(anchor='w', pady=8)
         ttk.Label(comparison, textvariable=self.shortcut_statuses['diff'],
                   style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
         ttk.Label(comparison, textvariable=self.diff_status, style='Card.Muted.TLabel',
@@ -419,28 +419,32 @@ class PreviewApplication:
             self.open(path)
 
     def _choose_for_diff(self):
-        """Choose a tracked text file for a working-tree versus HEAD comparison."""
+        """Choose two UTF-8 text files to compare."""
         self.diff_status.set(tr('status.diff.choosing'))
-        path = filedialog.askopenfilename(parent=self.root)
-        if path:
-            self.diff_status.set(tr('status.diff.selected', name=Path(path).name))
-            self._start_comparison(path)
+        old_path = filedialog.askopenfilename(parent=self.root)
+        if not old_path:
+            self.diff_status.set(tr('status.diff.cancelled'))
+            return
+        new_path = filedialog.askopenfilename(parent=self.root)
+        if new_path:
+            self.diff_status.set(tr('status.diff.selected', name=f"{Path(old_path).name} / {Path(new_path).name}"))
+            self._start_comparison(old_path, new_path)
         else:
             self.diff_status.set(tr('status.diff.cancelled'))
 
-    def _start_comparison(self, path):
-        """Run Git comparison away from the Tk thread."""
+    def _start_comparison(self, old_path, new_path):
+        """Run two-file comparison away from the Tk thread."""
         if self._diff_thread and self._diff_thread.is_alive():
             return
-        from offlook.core.git_diff import compare_with_head
+        from offlook.core.git_diff import compare_files
         self.diff_status.set(tr('status.diff.running'))
         def work():
             try:
-                self._diff_results.put((compare_with_head(path), None))
+                self._diff_results.put((compare_files(old_path, new_path), None))
             except OffLookError as exc:
                 self._diff_results.put((None, str(exc)))
             except Exception as exc:
-                self._diff_results.put((None, f'Git comparison failed: {type(exc).__name__}: {exc}'))
+                self._diff_results.put((None, f'File comparison failed: {type(exc).__name__}: {exc}'))
         self._diff_thread = threading.Thread(target=work, name='OffLookGitDiff', daemon=True)
         self._diff_thread.start()
 
@@ -1212,7 +1216,7 @@ class PreviewApplication:
         self._begin_selection('search', hwnd)
 
     def _diff_hotkey(self, hwnd):
-        """Resolve the selected Explorer file for comparison with Git HEAD."""
+        """Resolve two selected Explorer files for comparison."""
         self._begin_selection('diff', hwnd)
 
     def _begin_selection(self, action: str, hwnd: int) -> None:
@@ -1226,7 +1230,7 @@ class PreviewApplication:
         self.selection_hwnd, self.selection_mode = hwnd, action
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current,
                                             allow_folder=action == 'search',
-                                            multiple=action == 'convert'))
+                                            multiple=action in ('convert', 'diff')))
 
     def _cancel_selection(self, *, resume=True):
         if self.selection_hwnd is not None or self.selection_mode is not None:
@@ -1271,7 +1275,11 @@ class PreviewApplication:
                 self._show()
                 self.root.after_idle(self._focus_search)
             elif action == 'diff':
-                self._start_comparison(result['data'].path)
+                if len(result['data'].paths) != 2:
+                    self._selection_feedback(
+                        action, tr('status.selection.two_files'))
+                else:
+                    self._start_comparison(*result['data'].paths)
             else:
                 self.open(result['data'].path)
         finally:
