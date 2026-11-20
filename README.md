@@ -4,7 +4,7 @@ An offline file previewer for Windows with GUI and CLI interfaces. Previews and 
 
 ![OffLook main window (English)](docs/images/main-window-en.png)
 
-The interface is bilingual: switch between English and Chinese with the buttons at the top right. See [Getting started](docs/getting-started.md) for current instructions, [MODIFICATIONS.md](MODIFICATIONS.md) for historical notes, and [GITHUB-SETUP.md](GITHUB-SETUP.md) for the Git workflow.
+The interface is bilingual: switch between English and Chinese with the buttons at the top right. See [Getting started](docs/getting-started.md) for current instructions.
 
 ## Install and launch
 
