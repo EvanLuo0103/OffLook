@@ -84,7 +84,26 @@ class HotkeyConfigTests(unittest.TestCase):
                 self.assertEqual(config.hotkey, values.get("hotkey", "Ctrl+Space"))
                 self.assertEqual(config.search_hotkey, "Ctrl+Q")
                 self.assertEqual(config.diff_hotkey, "Ctrl+Alt+D")
+                self.assertEqual(config.filter_hotkey, 'Ctrl+Alt+F')
                 self.assertEqual(path.read_bytes(), old)
+
+    def test_legacy_config_keeps_existing_binding_that_uses_new_filter_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            manager = ConfigManager(path)
+            old = b'{"search_hotkey":"alt+ctrl+f"}'
+            path.write_bytes(old)
+            migrated = manager.load()
+            self.assertEqual(migrated.search_hotkey, 'Ctrl+Alt+F')
+            self.assertEqual(migrated.filter_hotkey, 'Ctrl+Alt+Shift+F')
+            self.assertEqual(path.read_bytes(), old)
+
+            invalid = b'{"search_hotkey":"alt+ctrl+f","filter_hotkey":"Ctrl+Alt+F"}'
+            path.write_bytes(invalid)
+            with self.assertRaisesRegex(ConfigError, r'search_hotkey and filter_hotkey both use Ctrl\+Alt\+F'):
+                manager.load()
+            self.assertIs(manager.current, migrated)
+            self.assertEqual(path.read_bytes(), invalid)
 
     def test_canonical_shortcut_roundtrips(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -64,6 +64,15 @@ def apply_theme(root: tk.Tk) -> None:
               foreground=[("disabled", "#FFFFFF"), ("active", "#FFFFFF")],
               bordercolor=[("active", COLORS["primary_dark"])])
 
+    # Sidebar buttons keep a keyboard focus ring and a persistent selected state.
+    style.configure("Nav.TButton", anchor="w", padding=(10, 9), focusthickness=1,
+                    focuscolor=COLORS["primary"], background=COLORS["background"], relief="flat")
+    style.map("Nav.TButton", background=[("pressed", "#CBDCFB"), ("active", COLORS["card"])])
+    style.configure("NavActive.TButton", anchor="w", padding=(10, 9), focusthickness=1,
+                    focuscolor=COLORS["primary"], background=COLORS["primary_soft"],
+                    foreground=COLORS["primary_dark"], relief="flat")
+    style.map("NavActive.TButton", background=[("pressed", "#CBDCFB"), ("active", COLORS["primary_soft"])])
+
     # Language toggle: compact segmented control at the top-right.
     style.configure("Lang.TButton", padding=(12, 4), relief="solid", borderwidth=1,
                     background=COLORS["card"], foreground=COLORS["muted"],
@@ -164,7 +173,8 @@ def window_fonts(window: tk.Misc, dpi: int) -> dict[str, tkfont.Font]:
     style.configure(f"{prefix}.Treeview.Heading", font=fonts["section"])
     if prefix == "Main":
         for suffix in ("TLabel", "Card.TLabel", "Muted.TLabel", "Card.Muted.TLabel", "TButton",
-                       "Accent.TButton", "TCheckbutton", "TEntry", "Lang.TButton", "LangActive.TButton"):
+                       "Accent.TButton", "TCheckbutton", "TEntry", "Lang.TButton", "LangActive.TButton",
+                       "Nav.TButton", "NavActive.TButton"):
             style.configure(suffix, font=fonts["body"])
         style.configure("Title.TLabel", font=fonts["title"])
         style.configure("Section.TLabel", font=fonts["section"], background=COLORS["card"])

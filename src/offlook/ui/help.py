@@ -10,24 +10,25 @@ from offlook.ui.theme import COLORS, window_fonts, size_window
 
 
 _HELP_EN = """Choosing a file to preview
-Click "Choose file" in the main window, or run:
+Click "Choose file" in "File tools", or run:
   offlook preview ".\\README.md"
 Select one file in File Explorer or on the desktop, then press the configured Preview shortcut. Its default is Ctrl+Space.
 
 Searching files
 In "Search files", choose a local folder and optionally enter part of a filename. Choose "All types", a content category, "Documents (.doc/.xlsx)", or "Other / unknown", then click "Search".
 The search includes subfolders but does not follow links or network folders. Double-click a result to preview it.
-In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook loads the folder and focuses the filename field; it does not run a search until you click "Search". A selected regular file or multiple items is an error, not a request to search the parent folder.
+In File Explorer, select one local folder, or open a local folder with nothing selected, then press the configured Search files shortcut (default: Ctrl+Q). OffLook opens the search page, loads the folder and focuses the filename field. Press Enter or click "Search" to start. A selected regular file or multiple items is an error, not a request to search the parent folder.
 
 File comparison
 In the "File comparison" card, click "Compare two files". In the Windows Open dialog, hold Ctrl and select exactly two files from the same folder, then click Open. You can also select two local files in File Explorer or on the desktop and press Compare files (default: Ctrl+Alt+D). Both methods sort the paths to set the initial order; Swap files reverses it. No Git installation or repository is needed.
 Compare plain text (such as TXT, Markdown, RST, CSV or code) and Word (.docx) body paragraphs and tables, even across formats. Each file is limited to 2,000,000 bytes and 20,000 lines; Word layout is not compared. Split and Unified show green + additions, red - deletions, and stronger highlighting within edited lines. DOCX preview still shows metadata only.
 
 Converting files
-Select files in File Explorer and press the configured Convert files shortcut (default Alt+C), or click "Choose files to convert". Choose a target in the "Convert to" dropdown, then click Convert or press Enter. Cancel, Esc or X dismisses it. Conversion is local; available backends depend on the input and target. For DOCX to PDF, auto uses Microsoft Word with optional docx2pdf, text uses paragraph text, and office uses LibreOffice.
+Select files in File Explorer and press the configured Convert files shortcut (default Alt+C), or click "Choose files to convert" in "File tools". The shortcut opens only the conversion dialog. Choose a target and click Convert or press Enter. Before starting, Cancel, Esc or X dismisses the chooser. Progress, output paths and errors stay in the same window; click Close when done. For DOCX to PDF, auto uses Microsoft Word with optional docx2pdf, text uses paragraph text, and office uses LibreOffice.
 
 Filtering files
 In "Filter files", choose a local folder and select formats, then click "Apply filter" to list matches in accessible folders. No selected formats means all types. Double-click a result to preview it.
+In File Explorer, press the Filter files shortcut (default Ctrl+Alt+F) with one local folder selected or with nothing selected in a local folder. Only the filter window opens. Run `offlook filter [FOLDER]` for paths on stdout, or add `--gui` to open the filter window. Omit FOLDER to use the terminal's current directory.
 
 AI file assistant
 Save an OpenAI-compatible endpoint, model and API key to use the assistant. It does not contact the provider automatically. Running "Run with AI" sends your instruction and can send tool results with local paths, filenames and sizes to the configured service. The tools can move or copy local files; the API key is stored in plain text in the local JSON configuration.
@@ -40,6 +41,7 @@ Preview: {preview}
 Search files: {search}
 Compare files: {diff}
 Convert files: {convert}
+Filter files: {filter}
 This summary updates when shortcut registration changes. An active key can differ from the configured key if a replacement fails.
 Esc or unmodified Space closes the preview; Space with Ctrl, Alt, or Shift does not.
 You can still choose files, search, and compare manually when global shortcuts are disabled or unavailable.
@@ -50,9 +52,9 @@ The mouse wheel scrolls the main and preview windows over most controls. Dropdow
 When you enlarge the window or move it to a higher-DPI display, images and PDFs are rendered again with more physical pixels, rather than repeatedly enlarging the old image.
 
 Shortcut settings and conflicts
-Choose Preview, Search files, Compare files, or Convert files in the action selector. Each action keeps its own draft. Click "Record shortcut", press a combination inside OffLook, then click "Apply" to save only the selected action. Esc cancels recording; switching actions cancels unfinished recording. "Reset default" changes only the selected draft and also requires Apply.
-"Enable global shortcuts" applies immediately to all four actions, independently of Apply. Disabling releases all keys; enabling attempts each saved key independently. A key that another application owns is shown as Unavailable, while the other actions can still work.
-Combinations must be different for all four actions, even while disabled. If registration or saving fails, the previous active key remains; the proposed draft is kept for correction or retry. Release an occupied key in the other application, then Apply again, or choose another combination. Changing externally configured keys does not implicitly swap active registrations: use an intermediate unused key to release the old one.
+Choose Preview, Search files, Compare files, Convert files, or Filter files in the action selector. Each action keeps its own draft. Click "Record shortcut", press a combination inside OffLook, then click "Apply" to save only the selected action. Esc cancels recording; switching actions cancels unfinished recording. "Reset default" changes only the selected draft and also requires Apply.
+"Enable global shortcuts" applies immediately to all actions, independently of Apply. Disabling releases all keys; enabling attempts each saved key independently. A key that another application owns is shown as Unavailable, while the other actions can still work.
+Combinations must be different for all actions, even while disabled. If registration or saving fails, the previous active key remains; the proposed draft is kept for correction or retry. Release an occupied key in the other application, then Apply again, or choose another combination. Changing externally configured keys does not implicitly swap active registrations: use an intermediate unused key to release the old one.
 Recording does not activate a shortcut or execute a feature, including when you press an already-registered Search files or Compare files key over OffLook's main window.
 Win-key combinations, F12, single keys, and reserved combinations such as Alt+F4 are not supported. Choose a combination with Ctrl or Alt, optionally Shift.
 
@@ -70,24 +72,25 @@ Content previews support images, PDFs, text, Markdown, code, and CSV. Word, Exce
 """
 
 _HELP_ZH = """選擇要預覽的檔案
-在主視窗按「選擇檔案」，或執行：
+在「檔案工具」按「選擇檔案」，或執行：
   offlook preview ".\\README.md"
 在檔案總管或桌面選取一個檔案，然後按已設定的「預覽」快捷鍵（預設 Ctrl+Space）。
 
 搜尋檔案
 在「檔案搜尋」中選擇本機資料夾，可選擇性輸入檔名的一部分，再選擇「所有類型」、某個內容類型、「文件（.doc/.xlsx）」或「其他／未知」，然後按「搜尋」。
 搜尋會包含子資料夾，但不會跟隨連結或網路資料夾。在結果上雙擊即可預覽。
-在檔案總管中選取一個本機資料夾（或開啟資料夾且未選取任何項目），再按「檔案搜尋」快捷鍵（預設 Ctrl+Q）。OffLook 會載入該資料夾並把游標放到檔名欄，在你按「搜尋」之前不會真的開始搜尋。若選取的是單一檔案或多個項目，會視為錯誤，不會改成搜尋上層資料夾。
+在檔案總管中選取一個本機資料夾（或開啟資料夾且未選取任何項目），再按「檔案搜尋」快捷鍵（預設 Ctrl+Q）。OffLook 會切到搜尋頁、載入該資料夾並把游標放到檔名欄。按 Enter 或「搜尋」才會開始。若選取的是單一檔案或多個項目，會視為錯誤，不會改成搜尋上層資料夾。
 
 檔案比對
 在「檔案比對」卡片按「比對兩個檔案」，在 Windows 開啟檔案對話框按住 Ctrl，從同一資料夾選取正好兩個檔案，再按「開啟」。也可在檔案總管或桌面選取正好兩個本機檔案，再按檔案比對快捷鍵（預設 Ctrl+Alt+D）。兩種方式都依路徑排序，可用「交換檔案」反轉方向。不需要 Git 或儲存庫。
 支援 TXT、Markdown、RST、CSV、程式碼等純文字，以及 Word（.docx）正文段落和表格，可跨格式比對。每份檔案上限 2,000,000 位元組和 20,000 行；不比較 Word 版面。「並排」和「統一」視圖以綠色 + 標示新增、紅色 - 標示刪除，並加深顯示行內改動。DOCX 預覽仍僅顯示中繼資料。
 
 轉換檔案
-在檔案總管選取檔案並按設定的轉換快捷鍵（預設 Alt+C），或在主視窗按「選擇要轉換的檔案」。在「轉換格式」對話框選擇目標後按 Convert（或 Enter），按 Cancel、Esc 或 X 可取消。轉換在本機進行，後端視來源和目標而定。DOCX 轉 PDF 時，auto 使用 Microsoft Word 與選用的 docx2pdf，text 只取段落文字，office 使用 LibreOffice。
+在檔案總管選取檔案並按轉換快捷鍵（預設 Alt+C），或在「檔案工具」按「選擇要轉換的檔案」。快捷鍵只開啟轉換小視窗。選擇格式後按「轉換」或 Enter；開始前可按「取消」、Esc 或 X。進度、輸出路徑和錯誤都在同一個視窗顯示，完成後按「關閉」。DOCX 轉 PDF 時，auto 使用 Microsoft Word 與選用的 docx2pdf，text 只取段落文字，office 使用 LibreOffice。
 
 篩選檔案
 在「檔案篩選」選擇資料夾與格式，再按「套用篩選」以列出可存取資料夾內的相符檔案。不勾選格式表示不限類型。在結果上雙擊即可預覽。
+在檔案總管選取一個本機資料夾，或在本機資料夾內不選取任何項目，按「檔案篩選」快捷鍵（預設 Ctrl+Alt+F）只會開啟獨立篩選視窗。也可執行 `offlook filter [FOLDER]` 輸出路徑；加上 `--gui` 即開啟篩選視窗。省略 FOLDER 時使用終端機的目前目錄。
 
 AI 檔案助手
 使用助手前可儲存 OpenAI 相容端點、模型及 API 金鑰。程式不會自動聯絡服務；按「用 AI 執行」會傳送指令，也可能將含有本機路徑、名稱及大小的工具結果傳給設定的服務。工具可移動或複製本機檔案，金鑰以明文儲存在本機 JSON。
@@ -100,6 +103,7 @@ AI 檔案助手
 檔案搜尋：{search}
 檔案比對：{diff}
 檔案轉換：{convert}
+檔案篩選：{filter}
 這份摘要會在快捷鍵註冊狀態變更時更新。若替換失敗，實際生效的按鍵可能與設定的不同。
 按 Esc 或單獨的 Space 會關閉預覽；Space 加上 Ctrl、Alt 或 Shift 則不會。
 即使通用快捷鍵停用或不可用，你仍可手動選擇檔案、搜尋與比對。
@@ -110,9 +114,9 @@ PDF 有「上一頁」「下一頁」按鈕；頁碼只在有實際繪製的 PDF
 放大視窗或把視窗移到更高 DPI 的螢幕時，圖片與 PDF 會用更多實際像素重新繪製，而不是把舊圖放大。
 
 快捷鍵設定與衝突
-在動作選單選擇「預覽」「檔案搜尋」「檔案比對」或「檔案轉換」。每個動作各自保留草稿。按「錄製快捷鍵」，在 OffLook 視窗內按下組合鍵，再按「套用」只儲存目前選取的動作。按 Esc 取消錄製；切換動作也會取消未完成的錄製。「還原預設」只會改動目前草稿，同樣需要按「套用」。
-「啟用全域快捷鍵」會立即套用到全部四個動作，與「套用」無關。停用會釋放所有按鍵；啟用會逐一嘗試各動作已儲存的按鍵。被其他程式佔用的按鍵會顯示為「無法使用」，其他動作仍可正常運作。
-四個動作的組合必須互不相同，即使在全域快捷鍵停用時也一樣。若註冊或儲存失敗，原本生效的按鍵會保留，草稿也會留著讓你修正或重試。請先在另一個程式釋放該按鍵再按「套用」，或改用其他組合。從外部變更設定檔的按鍵不會自動交換已註冊的按鍵：請先用一個未被佔用的組合釋放舊鍵。
+在動作選單選擇「預覽」「檔案搜尋」「檔案比對」「檔案轉換」或「檔案篩選」。每個動作各自保留草稿。按「錄製快捷鍵」，在 OffLook 視窗內按下組合鍵，再按「套用」只儲存目前選取的動作。按 Esc 取消錄製；切換動作也會取消未完成的錄製。「還原預設」只會改動目前草稿，同樣需要按「套用」。
+「啟用全域快捷鍵」會立即套用到所有動作，與「套用」無關。停用會釋放所有按鍵；啟用會逐一嘗試各動作已儲存的按鍵。被其他程式佔用的按鍵會顯示為「無法使用」，其他動作仍可正常運作。
+所有動作的組合必須互不相同，即使在全域快捷鍵停用時也一樣。若註冊或儲存失敗，原本生效的按鍵會保留，草稿也會留著讓你修正或重試。請先在另一個程式釋放該按鍵再按「套用」，或改用其他組合。從外部變更設定檔的按鍵不會自動交換已註冊的按鍵：請先用一個未被佔用的組合釋放舊鍵。
 錄製過程不會執行功能；即使你在 OffLook 主視窗上按下已註冊的「檔案搜尋」或「檔案比對」鍵也一樣。
 不支援 Win 鍵組合、F12、單一按鍵，以及 Alt+F4 這類保留組合。請選擇含 Ctrl 或 Alt（可再加 Shift）的組合。
 
@@ -138,6 +142,7 @@ def _help_body(shortcuts: Mapping[str, str]) -> str:
         search=shortcuts["search"],
         diff=shortcuts["diff"],
         convert=shortcuts["convert"],
+        filter=shortcuts["filter"],
     )
 
 

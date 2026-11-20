@@ -133,7 +133,7 @@ outcome = convert_file("a.png", "pdf")
 print(outcome.outputs)
 ```
 
-`target_formats()` lists recognized tokens, not implemented conversions for every source: `.xlsx` does not promise Excel output, and `.extract` is the ZIP extraction operation, not an output suffix. `reachable_targets(sources, mode="auto")` intersects the targets for all sources, but does not check that the required backends are installed. The GUI uses it for the **Convert to** dropdown; select a format and click **Convert** or press Enter, or dismiss it with **Cancel**, Esc, or X.
+`target_formats()` lists recognized tokens, not implemented conversions for every source: `.xlsx` does not promise Excel output, and `.extract` is the ZIP extraction operation, not an output suffix. `reachable_targets(sources, mode="auto")` intersects the targets for all sources, but does not check that the required backends are installed. The GUI uses it for the **Convert to** dropdown. With the shortcut, the dialog opens without restoring the main window and keeps progress, output paths, or errors in the same window.
 
 `convert_file`, `convert_files`, and `reachable_targets` accept `mode="auto"`, `"text"`, or `"office"`. The backend depends on the source and target:
 

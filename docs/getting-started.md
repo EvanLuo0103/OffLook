@@ -15,9 +15,11 @@ py -m offlook
 
 The first command installs dependencies, the second installs OffLook itself (and also installs dependencies automatically), and the third opens the main window. The initial installation downloads packages; subsequent previews do not need a network connection. Do not move or delete the project folder after installation.
 
+Use the left sidebar to switch between **File tools**, **Search files**, **Filter files**, **AI file assistant**, and **Settings**. Switching pages does not clear forms or results.
+
 ## 2. Set up PATH in one click
 
-Click **Add to PATH** in the main window. After the success or already-present message, reopen PowerShell; if necessary, close and reopen all of Windows Terminal.
+Open **Settings → System integration** and click **Add to PATH**. After the success or already-present message, reopen PowerShell; if necessary, close and reopen all of Windows Terminal.
 
 ```powershell
 offlook --version
@@ -37,9 +39,9 @@ Click **Choose file**, or replace the README path in the CLI example with an exi
 
 ### Search for files
 
-The **Search files** card searches a selected local folder and its subfolders without reading file contents. Enter an optional filename fragment, choose a document type, and click **Search**; it includes common Word (`.doc`, `.docx`), Excel (`.xls`, `.xlsx`), PowerPoint, and OpenDocument files. **Other / unknown** finds extensions outside the listed categories. Double-click a result to preview it. The scan skips symbolic links and inaccessible subfolders.
+The **Search files** page searches a selected local folder and its subfolders without reading file contents. Enter an optional filename fragment, choose a document type, then click **Search** or press Enter in the filename field. **Other / unknown** finds extensions outside the listed categories. Double-click a result to preview it. The scan skips symbolic links and inaccessible subfolders.
 
-In File Explorer, select one local folder, or open a local folder with nothing selected, and press the **Search files** shortcut (default: **Ctrl+Q**). OffLook loads that folder, scrolls the Search files card into view, and focuses the filename field. It does not search until you click **Search**. A selected regular file or multiple items produces an error; OffLook does not silently use a file's parent folder.
+In File Explorer, select one local folder, or open a local folder with nothing selected, and press the **Search files** shortcut (default: **Ctrl+Q**). OffLook opens the search page, loads that folder, and focuses the filename field without starting a search. A selected regular file or multiple items produces an error; OffLook does not silently use a file's parent folder.
 
 To diagnose the configured Search files shortcut without opening the GUI, first exit the main app and any other instance using that key, then run:
 
@@ -61,17 +63,17 @@ The result opens in **Split** view (old on the left, new on the right). Switch t
 
 ## 4. Customize global shortcuts
 
-Keep OffLook running, select one file in File Explorer or on the desktop, and press the **Preview** shortcut (default: **Ctrl+Space**). Pressing its shortcut again over that preview closes it. **Search files** (**Ctrl+Q**), **Compare files** (**Ctrl+Alt+D**), and **Convert files** (**Alt+C**) have separate configurable keys. These are defaults, not reserved keys.
+Keep OffLook running, select one file in File Explorer or on the desktop, and press the **Preview** shortcut (default: **Ctrl+Space**). Pressing its shortcut again over that preview closes it. **Search files** (**Ctrl+Q**), **Compare files** (**Ctrl+Alt+D**), **Convert files** (**Alt+C**), and **Filter files** (**Ctrl+Alt+F**) have separate configurable keys. These are defaults, not reserved keys.
 
-In **Shortcut settings**, choose exactly one action: **Preview**, **Search files**, **Compare files**, or **Convert files**. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft, so switching away and back preserves completed edits without saving them. Esc cancels recording; switching actions also cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an already-active key over the main window captures it without executing its feature.
+In **Settings → Shortcut settings**, choose **Preview**, **Search files**, **Compare files**, **Convert files**, or **Filter files**. Click **Record shortcut**, press a new combination inside OffLook, then click **Apply** to save only that action's key. Each action has its own draft, so switching away and back preserves completed edits without saving them. Esc, switching actions, or leaving the settings page cancels unfinished recording and restores its prior draft. **Reset default** changes only the selected draft and also requires **Apply**. Recording an already-active key over the main window captures it without executing its feature.
 
-**Enable global shortcuts** applies immediately to all four actions, independently of the selected-key Apply button. Disabling releases every global key without disabling manual preview, search, comparison, or conversion. Enabling attempts all four saved keys independently; an occupied key makes only that action **Unavailable**. Controls are temporarily disabled while registrations settle.
+**Enable global shortcuts** applies immediately to all actions, independently of the selected-key Apply button. Disabling releases every global key without disabling manual controls. Enabling attempts the saved keys independently; an occupied key makes only that action **Unavailable**. Controls are temporarily disabled while registrations settle.
 
-Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Space, or F1–F11. The Windows key, F12, and reserved combinations such as Alt+F4 and Alt+Space are not supported. All four saved combinations must be different, even while global shortcuts are disabled. A default key can be assigned to a different action after its previous owner is saved with a distinct key.
+Shortcuts require Ctrl or Alt (or both), optionally Shift, and A–Z, 0–9, Space, or F1–F11. The Windows key, F12, and reserved combinations such as Alt+F4 and Alt+Space are not supported. All saved combinations must be different, even while global shortcuts are disabled. A default key can be assigned to a different action after its previous owner is saved with a distinct key.
 
 The cards and open Help window show actual active keys, or **Disabled**, **Registering**, or **Unavailable** with the configured key and reason. If registration or saving fails, the old active key remains and the proposed draft stays available for retry. Release an occupied key in the other application, then click Apply again, or choose a different combination. If external configuration changes request a swap of active keys, use an intermediate unused combination to release the old key; OffLook does not silently unregister both actions to swap them.
 
-Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the configuration file explicitly specified on the CLI. Older files missing shortcut fields use their defaults without being rewritten just by loading. A file with invalid or duplicate combinations is an explicit configuration error; correct the named fields rather than expecting a silent reset. The single-file `preview` CLI command does not register global shortcuts.
+Settings are saved to `%LOCALAPPDATA%\OffLook\config.json` by default, or to the configuration file explicitly specified on the CLI. Loading old files does not rewrite them. If an old file already uses the default Filter files key elsewhere, OffLook picks an unused binding for the newly added action and preserves existing keys. Explicitly invalid or duplicate combinations are configuration errors. The `preview` and `filter` CLI commands do not register global shortcuts.
 
 ## 5. Background mode, startup, and Help
 
@@ -82,11 +84,11 @@ Enable **Start when signing in to Windows** to launch in the background the next
 py -m offlook --background
 ```
 
-The **Help** button or F1 opens the offline guide with live status for all four shortcuts. Reopen Help after switching languages. If a shortcut does not respond, check its status and confirm that OffLook is running. For Preview or Compare files, bring File Explorer or the desktop to the foreground and select one file or exactly two local files, respectively. In File Explorer, Search files accepts one selected local folder or the current folder with nothing selected, and Convert files accepts one or more selected files. An input method may reserve a combination; change it or use the manual controls.
+The **Help** button or F1 opens the offline guide with live shortcut status. Reopen Help after switching languages. If a shortcut does not respond, check its status and confirm that OffLook is running. For Preview or Compare files, bring File Explorer or the desktop to the foreground and select one file or exactly two local files, respectively. In File Explorer, Search files and Filter files accept one selected local folder or the current folder with nothing selected, and Convert files accepts one or more selected files. An input method may reserve a combination; change it or use the manual controls.
 
 ## 6. Convert, filter, and use AI
 
-**Convert files**: select one or more files in File Explorer and press the default **Alt+C** shortcut, or click **Choose files to convert**. In the **Convert to** dropdown, choose a target shared by the selected files, then click **Convert** or press Enter. **Cancel**, Esc, or X dismisses the dialog. When all selected files are images and you choose PDF, they become pages of one PDF. Otherwise, files are converted individually. OffLook writes outputs next to the source and adds a number if an output name already exists.
+**Convert files**: select one or more files in File Explorer and press the default **Alt+C**, or click **Choose files to convert** in **File tools**. The shortcut opens only the **Convert to** dialog; it does not restore the main window. Choose a format and click **Convert** or press Enter. **Cancel**, Esc, or X dismisses the chooser before conversion. Once started, progress and the result (output paths or an error) stay in the same dialog; click **Close** when finished. Multiple images targeting PDF become pages of one PDF; other files are converted individually. OffLook writes outputs next to the source and adds a number if an output name already exists.
 
 Set **Quality** before opening the dialog. The formats and backends below determine which modes are useful. An offered target may still fail if its backend is missing. `python-docx` is installed with OffLook; `docx2pdf`, `openpyxl`, and `python-pptx` are optional packages.
 
@@ -102,7 +104,16 @@ Set **Quality** before opening the dialog. The formats and backends below determ
 | HTML | TXT extracts readable text; PDF uses LibreOffice in `office` mode or when available in `auto`, and otherwise uses extracted text. |
 | ZIP | **Extract archive** unpacks the ZIP to a new folder. |
 
-**Filter files**: choose a folder, check any combination of categories, then click **Apply filter**. A file can match any checked category; leaving all boxes unchecked lists files without a type filter. The scan includes subfolders, skips symbolic links and inaccessible subfolders, and does not read file contents. Double-click a result to preview it. The [API](api.md#create-a-context-and-identify-files) also supports filename and extension filters. If combined, a result must match the filename and at least one value in each nonempty category or extension group.
+**Filter files**: choose a folder in the main page, or select a local folder in File Explorer and press **Ctrl+Alt+F** to open the standalone window without restoring the main window. With no selection, the shortcut uses the current local folder. A selected regular file or multiple items does not open a window. Check the categories you want and click **Apply filter**; no checked categories means all types. The scan includes subfolders, skips symbolic links and inaccessible subfolders, and does not read file contents. Double-click a result to preview it.
+
+```powershell
+py -m offlook filter '.\docs' --kind markdown --ext md --name started
+py -m offlook filter '.\docs' --gui --kind markdown
+```
+
+Omit the folder to filter the terminal's current working directory, in either mode (for example, `py -m offlook filter --kind markdown` or `py -m offlook filter --gui`).
+
+Without `--gui`, the command writes one absolute path per line (UTF-8 when piped or redirected), and no output on a successful scan with zero matches. `--kind` and `--ext` can both be repeated; values within a group are alternatives, and results must match every non-empty group as well as `--name` when supplied. `--gui` opens only the filter window, supports preselecting categories with `--kind`, and does not start scanning until **Apply filter**. It does not accept `--name` or `--ext`. Use `py -m offlook filter --help` for the complete options.
 
 **AI file assistant**: enter an OpenAI-compatible **Base URL** (for example, `https://api.deepseek.com`), a **Model** (for example, `deepseek-chat`), and your **API key**, then click **Save AI settings**. Saving does not contact the service. The key is saved in plaintext in the local JSON configuration; keep that file private. The **Enable AI assistant** checkbox is a saved preference, not a runtime access control.
 

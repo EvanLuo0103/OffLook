@@ -20,18 +20,20 @@ No virtual environment is used. The initial installation downloads dependencies;
 
 ## Main controls
 
+The left sidebar separates **File tools** (preview, compare, convert), **Search files**, **Filter files**, **AI file assistant**, and **Settings**. Switching pages keeps your inputs and results.
+
 - Pick the interface language with the **中文 / English** buttons at the top right; the choice is saved to the local configuration file and applies immediately.
 - Click **Choose file** in the main window, or select one file in File Explorer or on the desktop and press the default **Ctrl+Space** shortcut.
 - Use **Search files** to choose a local folder, search recursively by filename, and filter by document type, including Word, Excel, and PowerPoint files; double-click a result to preview it.
-- In File Explorer, select one local folder, or open a local folder with nothing selected, and press the default **Ctrl+Q** Search files shortcut. It loads the folder and focuses the filename field; click **Search** to run the search. A selected regular file or multiple items is an error.
+- In File Explorer, select one local folder, or open a local folder with nothing selected, and press the default **Ctrl+Q** shortcut. It opens the search page, loads the folder, and focuses the filename field. Press Enter or click **Search** to run it. A selected regular file or multiple items is an error.
 - In **File comparison**, click **Compare two files** to open the Windows file picker. Hold Ctrl to select exactly two files in the same folder, then click **Open**. Or select two local files in File Explorer or on the desktop and press **Ctrl+Alt+D** (configurable). OffLook sorts the paths to set the initial order; **Swap files** reverses it. **Split** and **Unified** views show removals in red (`-`), additions in green (`+`), and highlight changed text within paired lines. No Git installation, repository, or GitHub account is required.
-- Choose one or more files with **Choose files to convert**, or select files in File Explorer and press the default **Alt+C** shortcut. In **Convert to**, choose an output from the dropdown and click **Convert** or press Enter. **Cancel**, Esc, or X dismisses the dialog. Options depend on the selection and **Quality** setting; see [conversion formats and requirements](docs/getting-started.md#6-convert-filter-and-use-ai).
-- In **Filter files**, choose a folder and check the formats you want. **Apply filter** lists files recursively that match any checked category; if none are checked, no type filter applies. Double-click a result to preview it.
+- Click **Choose files to convert** under **File tools**, or select files in Explorer and press the default **Alt+C**. The shortcut opens only the **Convert to** dialog, without restoring the main window. Choose a format and press Enter or click **Convert**. Progress, output paths, or errors stay in that dialog. Before starting, use **Cancel**, Esc, or X to dismiss it; when done, use **Close**. See [conversion formats and requirements](docs/getting-started.md#6-convert-filter-and-use-ai).
+- In **Filter files**, choose a folder and check the formats you want. In File Explorer, press **Ctrl+Alt+F** (configurable) over a selected local folder or the current folder with nothing selected to open only the standalone filter window. Click **Apply filter** to list matches recursively; no checked categories means all types. Double-click a result to preview it.
 - The optional **AI file assistant** can list, filter, move, copy, and organize local files. Saving settings does not contact the service. Clicking **Run with AI** sends the instruction to the configured service and may send tool results such as paths, filenames, and sizes. The API key is saved in plaintext in the local JSON configuration.
 - To test the configured Search files key separately, run `py -m offlook diagnose-search-shortcut`, or `py -m offlook --config '<path>' diagnose-search-shortcut` for a custom config. The main app and other instances must release that key first. The diagnostic creates no GUI, tests the saved key even if the shared switch is off, and does not change settings; Ctrl+C exits successfully.
-- In **Shortcut settings**, choose **Preview**, **Search files**, **Compare files**, or **Convert files**. **Record shortcut** and **Reset default** change only that action's draft; **Apply** saves only the selected key. Switching actions preserves separate drafts; Esc cancels recording. The previous active key is kept if registration or saving fails.
-- **Enable global shortcuts** applies immediately to all four actions, separately from Apply. All saved combinations must differ, even when disabled. An occupied key makes only that action unavailable; release it and Apply again or choose another key. The cards and Help show active keys and any configured/active mismatch. Manual feature controls still work with global shortcuts disabled.
-- Click **Add to PATH** and reopen PowerShell as instructed to use `offlook preview '.\README.md'`.
+- Under **Settings → Shortcut settings**, choose **Preview**, **Search files**, **Compare files**, **Convert files**, or **Filter files**. **Record shortcut** and **Reset default** change only that action's draft; **Apply** saves only the selected key. Switching actions preserves separate drafts; Esc cancels recording. The previous active key is kept if registration or saving fails.
+- **Enable global shortcuts** applies immediately to all actions, separately from Apply. All saved combinations must differ, even when disabled. An occupied key makes only that action unavailable; release it and Apply again or choose another key. The cards and Help show active keys and any configured/active mismatch. Manual feature controls still work with global shortcuts disabled.
+- In **Settings**, click **Add to PATH** and reopen PowerShell as instructed to use `offlook preview '.\README.md'`.
 - Scroll with the mouse wheel over buttons, labels, and the file path field without aiming at the scrollbar. Lists and text areas keep their own scrolling while they have hidden content. The **Quality** dropdown keeps its native wheel behavior and can change the selected value.
 - Close a preview with Esc or Space, navigate PDF pages, or keep the current preview on top. Images and PDFs refresh at higher resolution when the window grows. **Fit** does not enlarge small source images; manual zoom is separate.
 - Unsupported or disabled formats show metadata such as type, size, path, and timestamps rather than binary contents. DOCX previews show metadata even though DOCX text can be compared.
@@ -41,7 +43,11 @@ No virtual environment is used. The initial installation downloads dependencies;
 ```powershell
 py -m offlook preview '.\README.md'
 py -m offlook --background
+py -m offlook filter '.\docs' --kind markdown
+py -m offlook filter '.\docs' --gui --kind markdown
 ```
+
+For `filter`, omit the folder to use the terminal's current directory. See `py -m offlook filter --help` for options.
 
 ## Supported formats and limits
 

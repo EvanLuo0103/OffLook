@@ -25,6 +25,8 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "lang.english": ("English", "English"),
     "lang.chinese": ("中文", "中文"),
     "lang.tooltip": ("Interface language", "介面語言"),
+    "page.tools": ("File tools", "檔案工具"),
+    "page.settings": ("Settings", "設定"),
 
     # Cards
     "card.preview": ("Quick preview", "快速預覽"),
@@ -33,6 +35,9 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "card.search": ("Search files", "檔案搜尋"),
     "card.filter": ("Filter files", "檔案篩選"),
     "card.ai": ("AI file assistant", "AI 檔案助手"),
+    "card.criteria": ("Criteria", "條件"),
+    "card.ai_connection": ("Connection", "連線設定"),
+    "card.ai_task": ("Instruction and response", "指令與回覆"),
     "card.shortcuts": ("Shortcut settings", "快捷鍵設定"),
     "card.integration": ("System integration", "系統整合"),
 
@@ -64,14 +69,15 @@ _TEXTS: dict[str, tuple[str, str]] = {
                                "先選擇檔案，再從「轉換格式」對話框選擇目標。"),
     "status.convert.none": ("No conversion is available for the selected files.",
                             "所選檔案沒有可用的轉換格式。"),
-    "status.convert.busy": ("A conversion is already running.", "已有轉換正在進行。"),
     "status.convert.running": ("Converting {n} file(s) to {target}…", "正在把 {n} 個檔案轉換為 {target}…"),
     "status.convert.done": ("Converted {n} file(s) → {m} output file(s).",
                             "已轉換 {n} 個檔案，產生 {m} 個輸出檔。"),
+    "status.convert.failed": ("Conversion failed.", "轉換失敗。"),
 
     # Search card
     "btn.choose_folder": ("Choose folder", "選擇資料夾"),
     "btn.search": ("Search", "搜尋"),
+    "label.search_name": ("File name", "檔名"),
     "col.type": ("Type", "類型"),
     "col.path": ("File", "檔案"),
     "status.search.default": ("Choose a folder to search recursively.", "選擇資料夾以遞迴搜尋。"),
@@ -91,6 +97,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "status.filter.running": ("Filtering…", "篩選中…"),
     "status.filter.found": ("{n} file(s) match the selected formats.",
                             "符合所選格式的檔案共 {n} 個。"),
+    "filter.dialog.close": ("Close", "關閉"),
 
     # AI card
     "check.ai_enable": ("Enable AI assistant", "啟用 AI 助手"),
@@ -116,6 +123,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "action.search": ("Search files", "檔案搜尋"),
     "action.diff": ("Compare files", "檔案比對"),
     "action.convert": ("Convert files", "檔案轉換"),
+    "action.filter": ("Filter files", "檔案篩選"),
     "btn.record": ("Record shortcut", "錄製快捷鍵"),
     "btn.apply": ("Apply", "套用"),
     "btn.reset_default": ("Reset default", "還原預設"),
@@ -150,6 +158,7 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "status.selection.focus_changed": ("Foreground focus changed; selection cancelled.",
                                        "前景視窗已改變，已取消選取。"),
     "status.selection.no_files": ("No local files selected", "未選取任何本機檔案"),
+    "status.selection.no_folder": ("No local folder selected.", "未選取任何本機資料夾。"),
     "status.selection.two_files": ("Select exactly two local files to compare.", "請選取兩個本機檔案進行比對。"),
 
     # Integration card
@@ -187,9 +196,11 @@ _TEXTS: dict[str, tuple[str, str]] = {
     "kind.binary": ("Other / unknown", "其他／未知"),
     "kind.other": ("Other", "其他"),
 
-    # Conversion wheel
-    "wheel.title": ("Convert to", "轉換格式"),
-    "wheel.count": ("{n} format(s)", "{n} 種格式"),
+    # Conversion dialog
+    "convert.dialog.title": ("Convert to", "轉換格式"),
+    "convert.dialog.convert": ("Convert", "轉換"),
+    "convert.dialog.cancel": ("Cancel", "取消"),
+    "convert.dialog.close": ("Close", "關閉"),
 
     # Preview window
     "preview.info": ("Local file · Offline preview", "本機檔案 · 離線預覽"),

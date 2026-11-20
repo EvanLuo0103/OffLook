@@ -3,14 +3,16 @@ from dataclasses import replace
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import time
 import tkinter as tk
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from offlook.core import create_context
-from offlook.core.errors import ConfigError, FileAccessError
+from offlook.core import create_context, format_label
+from offlook.core.errors import ConfigError, ConversionError, FileAccessError
+from offlook.core.files import FileKind
 from offlook.gui import PreviewApplication
 from offlook.platforms.windows_selection import SelectionResult, _query_foreground
 from offlook.ui.i18n import tr
@@ -69,16 +71,16 @@ class ShortcutIntegrationTests(unittest.TestCase):
         self.fail('Coordinator did not reach expected state')
     def start(self):
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:len(self.app.listeners)==4)
+        self.wait_for(lambda: set(self.app.listeners) == set(self.app.SHORTCUT_ACTIONS))
     def test_search_failure_does_not_disable_preview_or_diff(self):
         NativeListener.failures={'Ctrl+Q'}
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:set(self.app.listeners)=={'preview','diff','convert'})
+        self.wait_for(lambda:set(self.app.listeners)=={'preview','diff','convert','filter'})
         self.assertEqual(self.app.listeners['diff'].combo,'Ctrl+Alt+D')
     def test_preview_failure_does_not_disable_other_actions(self):
         NativeListener.failures={'Ctrl+Space'}
         self.app._reconcile_hotkeys()
-        self.wait_for(lambda:set(self.app.listeners)=={'search','diff','convert'})
+        self.wait_for(lambda:set(self.app.listeners)=={'search','diff','convert','filter'})
         self.assertEqual(self.app.listeners['search'].combo,'Ctrl+Q')
     def test_search_and_diff_replacements_preserve_other_bindings(self):
         self.start()
@@ -119,7 +121,7 @@ class ShortcutIntegrationTests(unittest.TestCase):
         self.assertTrue(all(listener.is_stopped for listener in old.values()))
         self.assertFalse(create_context(self.path).config.current.hotkey_enabled)
         self.app.enabled.set(True);self.app._set_hotkeys_enabled()
-        self.wait_for(lambda:len(self.app.listeners)==4)
+        self.wait_for(lambda: set(self.app.listeners) == set(self.app.SHORTCUT_ACTIONS))
     def test_selected_apply_drafts_and_duplicate_rejection(self):
         self.start()
         self.app.action.set(tr('action.search'));self.app._select_action()
@@ -186,6 +188,257 @@ class ShortcutIntegrationTests(unittest.TestCase):
                 self.wait_for(lambda: self.app.diff_window is not None and self.app.diff_window.winfo_viewable())
         self.assertIn('01-old.md / 02-new.md', self.app.diff_window.title())
         self.assertTrue(self.app.diff_status.get() == tr('status.diff.differences'))
+
+    def deliver_shell_selection(self, action, selection, ready):
+        listener = self.app.listeners[action]
+        listener.events.append({'type': 'hotkey', 'combo': listener.combo, 'foreground_hwnd': 123})
+        with patch('win32gui.GetForegroundWindow', return_value=123), patch.object(self.app.runner, 'submit') as submit:
+            self.app._poll_hotkeys()
+            request = submit.call_args.args[0]
+            response = dict(request_id=request.request_id, code=None, data=selection)
+            with patch.object(self.app.runner, 'poll', side_effect=[[response]] + [[]] * 200):
+                self.wait_for(ready)
+
+    def conversion_is_visible(self):
+        dialog = self.app.convert_dialog
+        return dialog is not None and dialog.winfo_exists() and dialog.winfo_viewable()
+
+    def test_convert_hotkey_keeps_root_hidden_and_shows_success_in_place(self):
+        self.start()
+        root = self.app.root
+        maps = []
+        root.bind('<Map>', lambda event: maps.append(event.widget) if event.widget is root else None, add='+')
+        source = Path(self.directory.name) / 'note.md'
+        source.write_text('# Hello\nworld', encoding='utf-8')
+        self.deliver_shell_selection('convert', SelectionResult(None, '', (source,)), self.conversion_is_visible)
+        dialog = self.app.convert_dialog
+        original_id = dialog.winfo_id()
+        dialog.dropdown.set(format_label('.txt'))
+        dialog.convert_button.invoke()
+        expected = tr('status.convert.done', n=1, m=1)
+        self.wait_for(lambda: dialog.summary.cget('text') == expected)
+
+        output = source.with_suffix('.txt')
+        self.assertIn('world', output.read_text(encoding='utf-8'))
+        self.assertIn(str(output), dialog.details.get('1.0', 'end'))
+        self.assertIs(self.app.convert_dialog, dialog)
+        self.assertEqual(dialog.winfo_id(), original_id)
+        self.assertEqual([w for w in root.winfo_children() if isinstance(w, tk.Toplevel) and w.winfo_viewable()], [dialog])
+        self.assertEqual(root.state(), 'withdrawn')
+        self.assertEqual(maps, [])
+        dialog.dismiss_button.invoke()
+        self.assertFalse(dialog.winfo_exists())
+
+    def test_conversion_failure_and_reentry_use_same_dialog(self):
+        self.start()
+        source = Path(self.directory.name) / 'note.md'
+        source.write_text('hello', encoding='utf-8')
+        self.deliver_shell_selection('convert', SelectionResult(None, '', (source,)), self.conversion_is_visible)
+        dialog = self.app.convert_dialog
+        original_id = dialog.winfo_id()
+        ready, release = threading.Event(), threading.Event()
+        expected = tr('status.convert.failed')
+
+        def fail_conversion(*args, **kwargs):
+            ready.set()
+            if not release.wait(5):
+                raise AssertionError('Test did not release conversion')
+            raise ConversionError('fixture failure')
+
+        with patch('offlook.core.convert_files', side_effect=fail_conversion) as convert:
+            dialog.dropdown.set(format_label('.txt'))
+            dialog.convert_button.invoke()
+            try:
+                self.wait_for(ready.is_set)
+                self.assertTrue(dialog.convert_button.instate(['disabled']))
+                self.assertTrue(dialog.dismiss_button.instate(['disabled']))
+                dialog.event_generate('<Escape>')
+                dialog.tk.call(dialog.protocol('WM_DELETE_WINDOW'))
+                self.assertTrue(dialog.winfo_exists())
+                listener = self.app.listeners['convert']
+                listener.events.append({'type': 'hotkey', 'combo': listener.combo, 'foreground_hwnd': 123})
+                with patch.object(self.app.runner, 'submit') as submit:
+                    self.app._poll_hotkeys()
+                    submit.assert_not_called()
+                self.app._set_language('zh')
+                self.assertIn('TXT', dialog.summary.cget('text'))
+                self.assertEqual(dialog.winfo_id(), original_id)
+                convert.assert_called_once()
+            finally:
+                release.set()
+            self.wait_for(lambda: dialog.summary.cget('text') == expected)
+
+        self.assertIs(self.app.convert_dialog, dialog)
+        self.assertEqual(dialog.winfo_id(), original_id)
+        self.assertEqual(dialog.details.get('1.0', 'end-1c'), 'fixture failure')
+        self.assertEqual(self.app.root.state(), 'withdrawn')
+        dialog.dismiss_button.invoke()
+        self.assertFalse(dialog.winfo_exists())
+
+        unsupported = source.with_name('unsupported.bin')
+        unsupported.write_bytes(b'\x00\x01\x02')
+        self.deliver_shell_selection('convert', SelectionResult(None, '', (unsupported,)), self.conversion_is_visible)
+        replacement = self.app.convert_dialog
+        self.assertEqual(replacement.summary.cget('text'), tr('status.convert.none'))
+        self.assertFalse(replacement.dropdown.winfo_ismapped())
+        self.assertFalse(replacement.convert_button.winfo_ismapped())
+        self.assertEqual(self.app.root.state(), 'withdrawn')
+
+    def test_search_shortcut_opens_search_page_and_keeps_results(self):
+        self.start()
+        folder = Path(self.directory.name)
+        match = folder / 'needle.txt'
+        match.write_text('match', encoding='utf-8')
+        (folder / 'other.txt').write_text('other', encoding='utf-8')
+        self.app._page_buttons['settings'].invoke()
+        self.app.search_name.set('needle')
+        self.app.search_kind_box.set(tr('kind.text'))
+        self.deliver_shell_selection('search', SelectionResult(folder, ''), self.app.search_entry.winfo_viewable)
+
+        def visible_pages():
+            return [key for key, page in self.app._pages.items() if page.winfo_viewable()]
+
+        self.assertEqual(visible_pages(), ['search'])
+        self.assertEqual(self.app.search_folder.get(), str(folder))
+        self.assertTrue(self.app.search_entry.selection_present())
+        self.app.search_button.invoke()
+        self.app._page_buttons['filter'].invoke()
+        self.wait_for(lambda: self.app.search_status.get() == tr('status.search.found', n=1))
+        self.assertEqual(visible_pages(), ['filter'])
+        self.app._page_buttons['search'].invoke()
+        self.app.root.update_idletasks()
+        self.assertEqual(self.app.search_name.get(), 'needle')
+
+        def result_paths():
+            tree = self.app.search_tree
+            return [tree.item(row, 'values')[1] for row in tree.get_children()]
+
+        self.assertEqual(result_paths(), [str(match)])
+        self.app._set_language('zh')
+        self.app.root.update_idletasks()
+        self.assertEqual(visible_pages(), ['search'])
+        self.assertEqual(result_paths(), [str(match)])
+        self.assertEqual(self.app.search_status.get(), tr('status.search.found', n=1))
+        self.assertEqual(self.app.search_kind_box.get(), tr('kind.text'))
+        self.assertEqual(self.app.search_button.cget('text'), tr('btn.search'))
+
+    def test_standalone_filter_preview_and_close_keep_root_hidden(self):
+        self.app.resident = False
+        folder = Path(self.directory.name)
+        match = folder / 'needle.txt'
+        match.write_text('match', encoding='utf-8')
+        (folder / 'other.md').write_text('# other', encoding='utf-8')
+        root = self.app.root
+        maps = []
+        root.bind('<Map>', lambda event: maps.append(event.widget) if event.widget is root else None, add='+')
+
+        self.app.open_filter(folder, kinds=(FileKind.TEXT,))
+        dialog = self.app.filter_dialog
+        self.wait_for(dialog.winfo_viewable)
+        self.assertTrue(dialog.kind_vars[FileKind.TEXT].get())
+        self.assertEqual(dialog.status.get(), tr('status.filter.ready'))
+        self.assertFalse(dialog.tree.get_children())
+        dialog.apply_button.invoke()
+        self.wait_for(lambda: dialog.status.get() == tr('status.filter.found', n=1))
+        row, = dialog.tree.get_children()
+        self.assertEqual(dialog.tree.item(row, 'values')[1], str(match))
+        dialog.tree.selection_set(row)
+        dialog.tree.focus_force()
+        dialog.tree.event_generate('<Return>')
+        self.wait_for(lambda: self.app.preview is not None and self.app.preview.window.winfo_viewable())
+        self.wait_for(lambda: self.app._preview_opened)
+        self.assertEqual(self.app.path, match)
+        self.app.close_preview()
+        self.assertTrue(dialog.winfo_viewable())
+        self.assertFalse(self.app.closing)
+        self.assertEqual(root.state(), 'withdrawn')
+        dialog.close_button.invoke()
+        root.after(3000, root.quit)
+        self.assertEqual(self.app.run(), 0)
+        self.assertTrue(self.app.runner.is_closed)
+        self.assertEqual(maps, [])
+
+    def test_filter_shortcut_opens_only_dialog_and_keeps_main_filter_state(self):
+        self.start()
+        root = self.app.root
+        folder = Path(self.directory.name)
+        match = folder / 'needle.txt'
+        match.write_text('match', encoding='utf-8')
+        (folder / 'other.md').write_text('# other', encoding='utf-8')
+        self.app.filter_folder.set('unchanged')
+        self.app.filter_vars[FileKind.PDF].set(True)
+        main_status = self.app.filter_status.get()
+        maps = []
+        root.bind('<Map>', lambda event: maps.append(event.widget) if event.widget is root else None, add='+')
+        listener = self.app.listeners['filter']
+        listener.events.append({'type': 'hotkey', 'combo': listener.combo, 'foreground_hwnd': 123})
+        with patch('win32gui.GetForegroundWindow', return_value=123), patch.object(self.app.runner, 'submit') as submit:
+            self.app._poll_hotkeys()
+            request = submit.call_args.args[0]
+            self.assertTrue(request.allow_folder)
+            self.assertFalse(request.multiple or request.strict_pair)
+            result = dict(request_id=request.request_id, code=None, data=SelectionResult(folder, ''))
+            with patch.object(self.app.runner, 'poll', side_effect=[[result]] + [[]] * 200):
+                self.wait_for(lambda: self.app.filter_dialog is not None and self.app.filter_dialog.winfo_viewable())
+
+        dialog = self.app.filter_dialog
+        self.assertEqual(dialog.folder, folder)
+        self.assertEqual(dialog.status.get(), tr('status.filter.ready'))
+        self.assertEqual([w for w in root.winfo_children() if isinstance(w, tk.Toplevel) and w.winfo_viewable()], [dialog])
+        dialog.kind_vars[FileKind.TEXT].set(True)
+        dialog.apply_button.invoke()
+        self.wait_for(lambda: dialog.status.get() == tr('status.filter.found', n=1))
+        self.assertEqual([dialog.tree.item(row, 'values')[1] for row in dialog.tree.get_children()], [str(match)])
+        self.assertEqual(self.app.filter_folder.get(), 'unchanged')
+        self.assertTrue(self.app.filter_vars[FileKind.PDF].get())
+        self.assertFalse(self.app.filter_vars[FileKind.TEXT].get())
+        self.assertEqual(self.app.filter_status.get(), main_status)
+        self.assertFalse(self.app.filter_tree.get_children())
+        dialog.close_button.invoke()
+
+        for foreground, result, expected in (
+            (123, dict(code='file_access', message='Select a folder', data=None), 'Select a folder'),
+            (456, dict(code=None, data=SelectionResult(folder, '')), tr('status.selection.focus_changed')),
+        ):
+            self.app.selection_hwnd, self.app.selection_mode = 123, 'filter'
+            with patch('win32gui.GetForegroundWindow', return_value=foreground):
+                self.app._finish_selection(result)
+            self.assertIsNone(self.app.filter_dialog)
+            self.assertIn(expected, self.app.filter_shortcut_feedback.get())
+        self.assertEqual(root.state(), 'withdrawn')
+        self.assertEqual(maps, [])
+
+    def test_filter_shortcut_reopens_busy_dialog_until_scan_finishes(self):
+        self.start()
+        self.app.open_filter(Path(self.directory.name))
+        dialog = self.app.filter_dialog
+        self.wait_for(dialog.winfo_viewable)
+        entered, release = threading.Event(), threading.Event()
+
+        def scan(*_args, **_kwargs):
+            entered.set()
+            release.wait(5)
+            return ()
+
+        with patch('offlook.core.filter_files', side_effect=scan) as filterer:
+            dialog.apply_button.invoke()
+            try:
+                self.wait_for(entered.is_set)
+                dialog.close_button.invoke()
+                self.assertEqual(dialog.state(), 'withdrawn')
+                listener = self.app.listeners['filter']
+                listener.events.append({'type': 'hotkey', 'combo': listener.combo, 'foreground_hwnd': 123})
+                with patch.object(self.app.runner, 'submit') as submit:
+                    self.app._poll_hotkeys()
+                    self.wait_for(dialog.winfo_viewable)
+                    submit.assert_not_called()
+                self.assertIs(self.app.filter_dialog, dialog)
+                filterer.assert_called_once()
+                dialog.close_button.invoke()
+            finally:
+                release.set()
+            self.wait_for(lambda: self.app.filter_dialog is None)
+        self.assertEqual(self.app.root.state(), 'withdrawn')
 
     def test_invalid_compare_selection_leaves_preview_usable(self):
         root = Path(self.directory.name)

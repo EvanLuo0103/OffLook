@@ -1,12 +1,14 @@
 """Main-thread application coordinator; parsing and native services stay off Tk."""
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
+from typing import TYPE_CHECKING
 
 from offlook.core.config import PreviewConfig
 from offlook.core.errors import OffLookError
@@ -14,9 +16,25 @@ from offlook.core.files import FileKind
 from offlook.core.hotkeys import parse_hotkey
 from offlook.preview.models import RenderRequest
 from offlook.preview.worker import WorkerRunner
-from offlook.ui.i18n import (kind_label, language, normalize_language, set_language,
-                             tr, tr_in)
+from offlook.ui.file_results import build_result_table, fill_results
+from offlook.ui.filter_dialog import FilterDialog, build_filter_checks, start_filter_scan
+from offlook.ui.i18n import language, normalize_language, set_language, tr, tr_in
 from offlook.ui.theme import COLORS
+
+if TYPE_CHECKING:
+    from offlook.ui.convert_dialog import ConversionDialog
+
+
+_MAIN_SIZE = (920, 680)
+_MAIN_MIN_SIZE = (740, 560)
+
+_MAIN_PAGES = (
+    ('tools', 'page.tools'),
+    ('search', 'card.search'),
+    ('filter', 'card.filter'),
+    ('ai', 'card.ai'),
+    ('settings', 'page.settings'),
+)
 
 
 def _can_scroll(widget) -> bool:
@@ -59,6 +77,7 @@ class PreviewApplication:
         'search': ('search_hotkey', 'action.search'),
         'diff': ('diff_hotkey', 'action.diff'),
         'convert': ('convert_hotkey', 'action.convert'),
+        'filter': ('filter_hotkey', 'action.filter'),
     }
 
     def __init__(self, context, *, renderers=None, resident=False, always_on_top=None,
@@ -73,14 +92,17 @@ class PreviewApplication:
         self.context, self.resident = context, resident
         self.top_override = always_on_top
         self.root = tk.Tk()
+        if not resident or background:
+            self.root.withdraw()
         self.root.title('OffLook')
         apply_theme(self.root)
         self._dpi = window_dpi(self.root.winfo_id())
         self.root.tk.call('tk', 'scaling', self._dpi / 72)
         self.fonts = window_fonts(self.root, self._dpi)
         self._scale = self._dpi / 96
-        self.root.geometry(f'{round(720*self._scale)}x{round(620*self._scale)}')
-        self.root.minsize(round(640*self._scale), round(520*self._scale))
+        width, height = (round(value * self._scale) for value in _MAIN_SIZE)
+        self.root.geometry(f'{width}x{height}')
+        self.root.minsize(*(round(value * self._scale) for value in _MAIN_MIN_SIZE))
         self.runner = WorkerRunner(renderers)
         self.listeners = {}
         self._pending_listeners = {}
@@ -110,8 +132,9 @@ class PreviewApplication:
         self._convert_results = queue.Queue()
         self._ai_thread = None
         self._ai_results = queue.Queue()
-        self.convert_wheel = None
-        self._convert_paths = ()
+        self.convert_dialog: ConversionDialog | None = None
+        self.filter_dialog: FilterDialog | None = None
+        self._conversion_picker_open = False
         self.diff_window = None
         self.preview = self.path = None
         self._preview_config = None
@@ -141,6 +164,7 @@ class PreviewApplication:
         self.search_status = tk.StringVar(value=tr('status.search.default'))
         self.filter_folder = tk.StringVar()
         self.filter_status = tk.StringVar(value=tr('status.filter.default'))
+        self.filter_shortcut_feedback = tk.StringVar(value='')
         self.filter_vars = {kind: tk.BooleanVar(value=False) for kind in (
             FileKind.IMAGE, FileKind.PDF, FileKind.TEXT, FileKind.MARKDOWN,
             FileKind.CODE, FileKind.CSV, FileKind.DOCUMENT, FileKind.BINARY)}
@@ -152,8 +176,7 @@ class PreviewApplication:
         self.ai_status = tk.StringVar(value=tr('status.ai.default'))
         self._search_cache = ()
         self._filter_cache = ()
-        self._search_error = ''
-        self._filter_error = ''
+        self._main_page = 'tools'
         self._build_main()
         if resident:
             from offlook.platforms.windows_startup import StartupManager
@@ -168,184 +191,245 @@ class PreviewApplication:
         self.root.protocol('WM_DELETE_WINDOW', self._hide if resident else self.shutdown)
         self.root.bind('<F1>', self._help_key)
         self.root.bind('<Configure>', self._main_configure)
-        if not resident or background:
-            self.root.withdraw()
         self.unsubscribe = context.events.subscribe('config.changed', self._config_changed)
         if resident:
             self._reconcile_hotkeys()
         self.root.after(25, self._poll)
         self.root.after_idle(self._clamp_main)
 
-    def _build_main(self):
-        """Build a scrollable card layout with a permanently reachable exit bar."""
-        pad = round(24*self._scale)
-        heading = ttk.Frame(self.root, padding=pad)
-        heading.pack(fill='x')
+    def _build_main(self) -> None:
+        """Build fixed window controls and one scrollable workspace per task."""
+        pad = round(16 * self._scale)
+        gap = round(8 * self._scale)
+        self._main_shell = shell = ttk.Frame(self.root)
+        shell.pack(fill='both', expand=True)
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(1, weight=1)
+
+        heading = ttk.Frame(shell, padding=(pad, gap))
+        heading.grid(row=0, column=0, sticky='ew')
+        heading.columnconfigure(0, weight=1)
+        brand = ttk.Frame(heading)
+        brand.grid(row=0, column=0, sticky='w')
+        ttk.Label(brand, text='OffLook', font=self.fonts['title']).pack(anchor='w')
+        ttk.Label(brand, text=tr('app.tagline'), style='Muted.TLabel').pack(anchor='w')
+        ttk.Button(heading, text=tr('btn.help'), command=self._help).grid(row=0, column=1, padx=gap)
         language_bar = ttk.Frame(heading)
-        language_bar.pack(side='right', anchor='ne')
-        ttk.Button(heading, text=tr('btn.help'), command=self._help).pack(side='right', padx=(0, 12))
-        for index, (code, key) in enumerate((('zh', 'lang.chinese'), ('en', 'lang.english'))):
-            active = language() == code
+        language_bar.grid(row=0, column=2, sticky='e')
+        for code, key in (('zh', 'lang.chinese'), ('en', 'lang.english')):
             ttk.Button(language_bar, text=tr(key),
-                       style='LangActive.TButton' if active else 'Lang.TButton',
-                       command=lambda chosen=code: self._set_language(chosen)).pack(
-                side='left', padx=(0 if index == 0 else 4, 0))
-        ttk.Label(heading, text='OffLook', font=self.fonts['title']).pack(anchor='w')
-        ttk.Label(heading, text=tr('app.tagline'), style='Muted.TLabel').pack(anchor='w', pady=(4,0))
-        holder = ttk.Frame(self.root)
-        holder.pack(fill='both', expand=True)
-        canvas = tk.Canvas(holder, highlightthickness=0, background='#F4F6FA')
-        scrollbar = ttk.Scrollbar(holder, orient='vertical', command=canvas.yview)
+                       style='LangActive.TButton' if language() == code else 'Lang.TButton',
+                       command=lambda chosen=code: self._set_language(chosen)).pack(side='left', padx=(4, 0))
+
+        body = ttk.Frame(shell)
+        body.grid(row=1, column=0, sticky='nsew')
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, minsize=round(144 * self._scale))
+        body.columnconfigure(2, weight=1)
+        nav = ttk.Frame(body, padding=(gap, gap))
+        nav.grid(row=0, column=0, sticky='nsew')
+        ttk.Separator(body, orient='vertical').grid(row=0, column=1, sticky='ns')
+        workspace = ttk.Frame(body)
+        workspace.grid(row=0, column=2, sticky='nsew')
+        workspace.rowconfigure(0, weight=1)
+        workspace.columnconfigure(0, weight=1)
+        self._pages, self._page_buttons, self._page_canvases = {}, {}, {}
+        builders = (self._build_tools_page, self._build_search_page, self._build_filter_page,
+                    self._build_ai_page, self._build_settings_page)
+        for (page, title_key), build in zip(_MAIN_PAGES, builders, strict=True):
+            button = ttk.Button(nav, text=tr(title_key), width=1, style='Nav.TButton',
+                                command=lambda selected=page: self._select_main_page(selected))
+            button.pack(fill='x', pady=(0, gap // 2))
+            self._page_buttons[page] = button
+            self._pages[page], self._page_canvases[page], content = self._build_scroll_page(workspace, tr(title_key))
+            build(content)
+        self._select_main_page(self._main_page)
+
+        footer = ttk.Frame(shell, padding=(pad, gap))
+        footer.grid(row=2, column=0, sticky='ew')
+        footer.columnconfigure(0, weight=1)
+        status = ttk.Label(footer, textvariable=self.status, style='Muted.TLabel', justify='left')
+        status.grid(row=0, column=0, sticky='ew', padx=(0, gap))
+        status.bind('<Configure>', self._wrap_label)
+        ttk.Button(footer, text=tr('btn.hide'), command=self._hide).grid(row=0, column=1, padx=(0, gap))
+        ttk.Button(footer, text=tr('btn.exit'), command=self.shutdown).grid(row=0, column=2)
+        self._bind_mousewheel()
+
+    def _select_main_page(self, page: str) -> None:
+        if page not in self._pages:
+            return
+        if self._main_page == 'settings' and page != 'settings' and self._recording:
+            self._cancel_recording()
+            self.shortcut_feedback.set('')
+        self._main_page = page
+        for key, panel in self._pages.items():
+            if key == page:
+                panel.grid(row=0, column=0, sticky='nsew')
+            else:
+                panel.grid_remove()
+            self._page_buttons[key].configure(style='NavActive.TButton' if key == page else 'Nav.TButton')
+
+    def _build_scroll_page(self, parent: ttk.Frame, title: str) -> tuple[ttk.Frame, tk.Canvas, ttk.Frame]:
+        pad = round(16 * self._scale)
+        page = ttk.Frame(parent)
+        ttk.Label(page, text=title, style='Title.TLabel').pack(anchor='w', padx=pad, pady=(pad, 8))
+        viewport = ttk.Frame(page)
+        viewport.pack(fill='both', expand=True)
+        canvas = tk.Canvas(viewport, width=1, height=1, highlightthickness=0, background=COLORS['background'])
+        scrollbar = ttk.Scrollbar(viewport, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
-        # Handle the wheel on the scrollbar itself so one notch scrolls the same
-        # distance there as anywhere else (its class binding jumps four units).
+        # Use the page wheel handler before the scrollbar's class binding.
         scrollbar.bind('<MouseWheel>', self._wheel_main)
         scrollbar.pack(side='right', fill='y')
         canvas.pack(side='left', fill='both', expand=True)
-        content = ttk.Frame(canvas, padding=(pad,0,pad,pad))
-        item = canvas.create_window(0,0,window=content,anchor='nw')
-        self.main_canvas, self.main_content = canvas, content
-        content.bind('<Configure>', lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
-        canvas.bind('<Configure>', lambda event: canvas.itemconfigure(item,width=event.width))
+        content = ttk.Frame(canvas, padding=(pad, 0, pad, pad))
+        item = canvas.create_window(0, 0, window=content, anchor='nw')
+        content.bind('<Configure>', lambda _event: canvas.configure(scrollregion=canvas.bbox(item)))
+        canvas.bind('<Configure>', lambda event: canvas.itemconfigure(item, width=event.width))
+        return page, canvas, content
+
+    @staticmethod
+    def _wrap_label(event: tk.Event) -> None:
+        if event.width > 1:
+            event.widget.configure(wraplength=event.width)
+
+    def _card_label(self, parent: ttk.Frame, *, pady=0, muted=True, **options) -> ttk.Label:
+        label = ttk.Label(parent, style='Card.Muted.TLabel' if muted else 'Card.TLabel',
+                          justify='left', **options)
+        label.pack(fill='x', pady=pady)
+        label.bind('<Configure>', self._wrap_label)
+        return label
+
+    def _build_tools_page(self, content: ttk.Frame) -> None:
         primary = self._card(content, tr('card.preview'))
-        ttk.Button(primary, text=tr('btn.choose_file'), style='Accent.TButton', command=self._choose).pack(anchor='w',pady=8)
-        ttk.Label(primary, textvariable=self.shortcut_statuses['preview'], style='Card.TLabel', wraplength=560).pack(anchor='w')
+        ttk.Button(primary, text=tr('btn.choose_file'), style='Accent.TButton',
+                   command=self._choose).pack(anchor='w', pady=8)
+        self._card_label(primary, textvariable=self.shortcut_statuses['preview'])
+
         comparison = self._card(content, tr('card.compare'))
         ttk.Button(comparison, text=tr('btn.compare_files'), command=self._choose_for_diff).pack(anchor='w', pady=8)
-        ttk.Label(comparison, textvariable=self.shortcut_statuses['diff'],
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
-        ttk.Label(comparison, textvariable=self.diff_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w', pady=(6, 0))
+        self._card_label(comparison, textvariable=self.shortcut_statuses['diff'])
+        self._card_label(comparison, textvariable=self.diff_status, pady=(4, 0))
+
         conversion = self._card(content, tr('card.convert'))
         ttk.Button(conversion, text=tr('btn.choose_convert'), command=self._choose_convert_files).pack(anchor='w', pady=8)
-        ttk.Label(conversion, text=tr('hint.convert_shortcut'),
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
+        self._card_label(conversion, textvariable=self.shortcut_statuses['convert'])
+        self._card_label(conversion, text=tr('hint.convert_shortcut'), pady=(4, 0))
         mode_row = ttk.Frame(conversion, style='Card.TFrame')
-        mode_row.pack(fill='x', pady=4)
-        ttk.Label(mode_row, text=tr('label.quality'), style='Card.Muted.TLabel', width=10).pack(side='left')
-        quality_box = ttk.Combobox(mode_row, textvariable=self.convert_mode, state='readonly', width=30,
+        mode_row.pack(fill='x', pady=(8, 4))
+        ttk.Label(mode_row, text=tr('label.quality'), style='Card.Muted.TLabel').pack(side='left', padx=(0, 8))
+        quality_box = ttk.Combobox(mode_row, textvariable=self.convert_mode, state='readonly', width=12,
                                    values=('auto', 'text', 'office'))
         quality_box.pack(side='left')
-        # ttk::combobox has no -command option; report changes through its virtual event.
         quality_box.bind('<<ComboboxSelected>>', self._convert_mode_changed)
-        ttk.Label(conversion, text=tr('hint.convert_mode'),
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(2, 0))
-        ttk.Label(conversion, textvariable=self.convert_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w', pady=(6, 0))
-        search = self._card(content, tr('card.search'))
-        self.search_card = search
-        search_row = ttk.Frame(search, style='Card.TFrame')
-        search_row.pack(fill='x', pady=4)
-        ttk.Button(search_row, text=tr('btn.choose_folder'), command=self._choose_search_folder).pack(side='left')
-        ttk.Label(search, textvariable=self.search_folder, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
-        filter_row = ttk.Frame(search, style='Card.TFrame')
-        filter_row.pack(fill='x', pady=4)
-        self.search_entry = ttk.Entry(filter_row, textvariable=self.search_name)
+        self._card_label(conversion, text=tr('hint.convert_mode'))
+        self._card_label(conversion, textvariable=self.convert_status, pady=(8, 0))
+
+    def _folder_row(self, parent: ttk.Frame, folder: tk.StringVar, choose: Callable[[], None]) -> None:
+        row = ttk.Frame(parent, style='Card.TFrame')
+        row.pack(fill='x', pady=4)
+        ttk.Button(row, text=tr('btn.choose_folder'), command=choose).pack(side='left', padx=(0, 8))
+        ttk.Entry(row, textvariable=folder, state='readonly', width=1).pack(side='left', fill='x', expand=True)
+
+    def _build_search_page(self, content: ttk.Frame) -> None:
+        criteria = self._card(content, tr('card.criteria'))
+        self._folder_row(criteria, self.search_folder, self._choose_search_folder)
+        row = ttk.Frame(criteria, style='Card.TFrame')
+        row.pack(fill='x', pady=4)
+        ttk.Label(row, text=tr('label.search_name'), style='Card.Muted.TLabel').pack(side='left', padx=(0, 8))
+        self.search_entry = ttk.Entry(row, textvariable=self.search_name, width=1)
         self.search_entry.pack(side='left', fill='x', expand=True)
-        self.search_kind_box = ttk.Combobox(filter_row, textvariable=self.search_kind, state='readonly',
+        self.search_kind_box = ttk.Combobox(row, textvariable=self.search_kind, state='readonly',
                                             width=18, values=search_kind_values())
-        self.search_kind_box.pack(side='left', padx=(8, 0))
-        self.search_button = ttk.Button(search, text=tr('btn.search'), command=self._search)
-        self.search_button.pack(anchor='w', pady=(4, 8))
-        self.search_tree = ttk.Treeview(search, columns=('type', 'path'), show='headings', height=6)
-        self.search_tree.heading('type', text=tr('col.type'))
-        self.search_tree.heading('path', text=tr('col.path'))
-        self.search_tree.column('type', width=90, stretch=False)
-        self.search_tree.column('path', width=520)
-        self.search_tree.pack(fill='x')
-        self.search_tree.bind('<Double-1>', self._open_search_result)
-        ttk.Label(search, textvariable=self.search_status, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
-        ttk.Label(search, textvariable=self.shortcut_statuses['search'],
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(2, 0))
-        filter_card = self._card(content, 'Filter files')
-        filter_row = ttk.Frame(filter_card, style='Card.TFrame')
-        filter_row.pack(fill='x', pady=4)
-        ttk.Button(filter_row, text=tr('btn.choose_folder'), command=self._choose_filter_folder).pack(side='left')
-        ttk.Label(filter_card, textvariable=self.filter_folder, style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
-        filter_options = (
-            ('kind.image', FileKind.IMAGE), ('kind.pdf', FileKind.PDF), ('kind.text', FileKind.TEXT),
-            ('kind.markdown', FileKind.MARKDOWN), ('kind.code', FileKind.CODE), ('kind.csv', FileKind.CSV),
-            ('kind.documents', FileKind.DOCUMENT), ('kind.other', FileKind.BINARY),
-        )
-        checkbox_grid = ttk.Frame(filter_card, style='Card.TFrame')
-        checkbox_grid.pack(fill='x', pady=4)
-        for index, (label_key, kind) in enumerate(filter_options):
-            ttk.Checkbutton(checkbox_grid, text=tr(label_key), variable=self.filter_vars[kind]).grid(
-                row=index // 4, column=index % 4, sticky='w', padx=(0, 14), pady=2)
-        self.filter_button = ttk.Button(filter_card, text=tr('btn.apply_filter'), command=self._apply_filter)
-        self.filter_button.pack(anchor='w', pady=(4, 8))
-        self.filter_tree = ttk.Treeview(filter_card, columns=('type', 'path'), show='headings', height=6)
-        self.filter_tree.heading('type', text=tr('col.type'))
-        self.filter_tree.heading('path', text=tr('col.path'))
-        self.filter_tree.column('type', width=90, stretch=False)
-        self.filter_tree.column('path', width=520)
-        self.filter_tree.pack(fill='x')
-        self.filter_tree.bind('<Double-1>', self._open_filter_result)
-        ttk.Label(filter_card, textvariable=self.filter_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w', pady=(6, 0))
-        ai_card = self._card(content, tr('card.ai'))
-        ttk.Checkbutton(ai_card, text=tr('check.ai_enable'), variable=self.ai_enabled).pack(anchor='w', pady=4)
-        ai_grid = ttk.Frame(ai_card, style='Card.TFrame')
-        ai_grid.pack(fill='x', pady=4)
-        for row_index, (label_key, variable, show) in enumerate((
-            ('field.base_url', self.ai_base_url, None),
-            ('field.model', self.ai_model, None),
+        self.search_kind_box.pack(side='left', padx=8)
+        self.search_button = ttk.Button(row, text=tr('btn.search'), command=self._search, style='Accent.TButton')
+        self.search_button.pack(side='left')
+        self.search_entry.bind('<Return>', self._search_from_entry)
+        self._card_label(criteria, textvariable=self.search_status, pady=(8, 0))
+        self._card_label(criteria, textvariable=self.shortcut_statuses['search'], pady=(4, 0))
+        self.search_tree = build_result_table(content, self._open_search_result, scale=self._scale)
+
+    def _search_from_entry(self, _event: tk.Event) -> str:
+        self.search_button.invoke()
+        return 'break'
+
+    def _build_filter_page(self, content: ttk.Frame) -> None:
+        criteria = self._card(content, tr('card.criteria'))
+        self._folder_row(criteria, self.filter_folder, self._choose_filter_folder)
+        build_filter_checks(criteria, self.filter_vars)
+        self.filter_button = ttk.Button(criteria, text=tr('btn.apply_filter'),
+                                        command=self._apply_filter, style='Accent.TButton')
+        self.filter_button.pack(anchor='w', pady=(4, 0))
+        self._card_label(criteria, textvariable=self.filter_status, pady=(8, 0))
+        self._card_label(criteria, textvariable=self.shortcut_statuses['filter'], pady=(4, 0))
+        self._card_label(criteria, textvariable=self.filter_shortcut_feedback)
+        self.filter_tree = build_result_table(content, self._open_filter_result, scale=self._scale)
+
+    def _build_ai_page(self, content: ttk.Frame) -> None:
+        connection = self._card(content, tr('card.ai_connection'))
+        ttk.Checkbutton(connection, text=tr('check.ai_enable'), variable=self.ai_enabled).pack(anchor='w', pady=4)
+        fields = ttk.Frame(connection, style='Card.TFrame')
+        fields.pack(fill='x', pady=4)
+        fields.columnconfigure(1, weight=1)
+        for row, (label_key, variable, show) in enumerate((
+            ('field.base_url', self.ai_base_url, ''),
+            ('field.model', self.ai_model, ''),
             ('field.api_key', self.ai_key, '*'),
         )):
-            ttk.Label(ai_grid, text=tr(label_key), style='Card.Muted.TLabel', width=10).grid(
-                row=row_index, column=0, sticky='w', pady=3)
-            ttk.Entry(ai_grid, textvariable=variable, show=show or '').grid(
-                row=row_index, column=1, sticky='ew', pady=3)
-        ai_grid.columnconfigure(1, weight=1)
-        ttk.Button(ai_card, text=tr('btn.save_ai'), command=self._save_ai).pack(anchor='w', pady=(4, 8))
-        ttk.Label(ai_card, text=tr('label.ai_instruction'),
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w')
-        self.ai_instruction_entry = ttk.Entry(ai_card, textvariable=self.ai_instruction)
-        self.ai_instruction_entry.pack(fill='x', pady=6)
-        self.ai_run_button = ttk.Button(ai_card, text=tr('btn.run_ai'), command=self._run_ai)
+            ttk.Label(fields, text=tr(label_key), style='Card.Muted.TLabel').grid(
+                row=row, column=0, sticky='w', padx=(0, 8), pady=3)
+            ttk.Entry(fields, textvariable=variable, show=show).grid(row=row, column=1, sticky='ew', pady=3)
+        ttk.Button(connection, text=tr('btn.save_ai'), command=self._save_ai).pack(anchor='w', pady=(4, 0))
+
+        task = self._card(content, tr('card.ai_task'))
+        self._card_label(task, text=tr('label.ai_instruction'))
+        self.ai_instruction_entry = ttk.Entry(task, textvariable=self.ai_instruction)
+        self.ai_instruction_entry.pack(fill='x', pady=8)
+        self.ai_run_button = ttk.Button(task, text=tr('btn.run_ai'), command=self._run_ai, style='Accent.TButton')
         self.ai_run_button.pack(anchor='w', pady=(0, 8))
-        ttk.Label(ai_card, textvariable=self.ai_status, style='Card.Muted.TLabel',
-                  wraplength=560).pack(anchor='w')
-        self.ai_output = tk.Text(ai_card, height=6, wrap='word', relief='flat', borderwidth=0,
+        self._card_label(task, textvariable=self.ai_status)
+        output = ttk.Frame(task, style='Card.TFrame')
+        output.pack(fill='x', pady=(8, 0))
+        self.ai_output = tk.Text(output, height=8, width=1, wrap='word', relief='flat', borderwidth=0,
                                  background=COLORS['card'], foreground=COLORS['text'],
                                  font=self.fonts['body'], state='disabled', padx=4, pady=4)
-        self.ai_output.pack(fill='x', pady=(6, 0))
+        scrollbar = ttk.Scrollbar(output, orient='vertical', command=self.ai_output.yview)
+        self.ai_output.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side='right', fill='y')
+        self.ai_output.pack(side='left', fill='x', expand=True)
+
+    def _build_settings_page(self, content: ttk.Frame) -> None:
         settings = self._card(content, tr('card.shortcuts'))
         self.enable_control = ttk.Checkbutton(settings, text=tr('check.enable_shortcuts'),
-                                               variable=self.enabled, command=self._set_hotkeys_enabled)
+                                              variable=self.enabled, command=self._set_hotkeys_enabled)
         self.enable_control.pack(anchor='w', pady=4)
         self.action_selector = ttk.Combobox(settings, textvariable=self.action, state='readonly',
                                             values=tuple(tr(key) for _, key in self.SHORTCUT_ACTIONS.values()))
         self.action_selector.pack(fill='x', pady=4)
         self.action_selector.bind('<<ComboboxSelected>>', self._select_action)
-        self.combo_entry = ttk.Entry(settings,textvariable=self.combo,state='readonly',font=self.fonts['body'])
-        self.combo_entry.pack(fill='x',pady=6)
+        self.shortcut_active_label = self._card_label(settings, textvariable=self.shortcut_statuses[self._selected_action])
+        self.combo_entry = ttk.Entry(settings, textvariable=self.combo, state='readonly', font=self.fonts['body'])
+        self.combo_entry.pack(fill='x', pady=8)
         self.combo_entry.bind('<KeyPress>', self._capture)
-        row=ttk.Frame(settings,style='Card.TFrame')
+        row = ttk.Frame(settings, style='Card.TFrame')
         row.pack(fill='x')
-        self.record_button=ttk.Button(row,text=tr('btn.record'),command=self._record)
-        self.apply_button=ttk.Button(row,text=tr('btn.apply'),command=self._apply_hotkey)
-        self.reset_button=ttk.Button(row,text=tr('btn.reset_default'),command=self._reset_hotkey)
-        for button in (self.record_button,self.apply_button,self.reset_button):
-            button.pack(side='left',padx=(0,8))
-        ttk.Label(settings,text=tr('hint.shortcut_keys'),style='Card.TLabel',wraplength=560).pack(anchor='w',pady=(8,0))
-        ttk.Label(settings, text=tr('hint.shortcut_switch'),
-                  style='Card.Muted.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
-        ttk.Label(settings, textvariable=self.shortcut_feedback,
-                  style='Card.TLabel', wraplength=560).pack(anchor='w', pady=(6, 0))
-        integration=self._card(content,tr('card.integration'))
-        ttk.Checkbutton(integration,text=tr('check.autostart'),variable=self.autostart,command=self._toggle_startup).pack(anchor='w',pady=4)
-        self.path_button=ttk.Button(integration,text=tr('btn.add_path'),command=self._add_path)
-        self.path_button.pack(anchor='w',pady=6)
-        ttk.Label(integration,textvariable=self.status,style='Card.TLabel',wraplength=560).pack(anchor='w')
-        footer=ttk.Frame(self.root,padding=(pad,12))
-        footer.pack(fill='x')
-        ttk.Button(footer,text=tr('btn.exit'),command=self.shutdown).pack(side='right')
-        ttk.Button(footer,text=tr('btn.hide'),command=self._hide).pack(side='right',padx=8)
-        self._bind_mousewheel()
+        self.record_button = ttk.Button(row, text=tr('btn.record'), command=self._record)
+        self.apply_button = ttk.Button(row, text=tr('btn.apply'), command=self._apply_hotkey, style='Accent.TButton')
+        self.reset_button = ttk.Button(row, text=tr('btn.reset_default'), command=self._reset_hotkey)
+        for button in (self.record_button, self.apply_button, self.reset_button):
+            button.pack(side='left', padx=(0, 8))
+        self._card_label(settings, text=tr('hint.shortcut_keys'), pady=(8, 0))
+        self._card_label(settings, text=tr('hint.shortcut_switch'), pady=(4, 0))
+        self._card_label(settings, textvariable=self.shortcut_feedback, pady=(8, 0), muted=False)
+
+        integration = self._card(content, tr('card.integration'))
+        ttk.Checkbutton(integration, text=tr('check.autostart'), variable=self.autostart,
+                        command=self._toggle_startup).pack(anchor='w', pady=4)
+        self.path_button = ttk.Button(integration, text=tr('btn.add_path'), command=self._add_path)
+        self.path_button.pack(anchor='w', pady=(8, 0))
 
     def _bind_mousewheel(self):
-        """Route wheel gestures over the card stack to the scrollable canvas.
+        """Route wheel gestures over the work area to the active page's canvas.
 
         Binding on the toplevel lets the whole window scroll even when the
         pointer sits over a card's label or button, while widgets that already
@@ -363,8 +447,8 @@ class PreviewApplication:
           content, and otherwise falls through so the page keeps scrolling;
         * a dropdown keeps its native wheel behaviour (it changes the value).
 
-        The scrollbar is bound directly to this handler (see _build_main), which
-        returning ``break`` keeps its faster class binding out of the same notch.
+        The page scrollbar also binds directly to this handler, so returning
+        ``break`` keeps its faster class binding out of the same notch.
         """
         if self.closing:
             return None
@@ -379,14 +463,14 @@ class PreviewApplication:
         steps = -int(delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
         if steps == 0:
             return None
-        self.main_canvas.yview_scroll(steps, 'units')
+        self._page_canvases[self._main_page].yview_scroll(steps, 'units')
         return 'break'
 
     def _card(self, parent, title):
         """Create one consistently spaced surface without extra image assets."""
-        card=ttk.Frame(parent,style='Card.TFrame',padding=round(16*self._scale))
-        card.pack(fill='x',pady=(0,12))
-        ttk.Label(card,text=title,style='Card.TLabel',font=self.fonts['section']).pack(anchor='w',pady=(0,4))
+        card = ttk.Frame(parent, style='Card.TFrame', padding=round(16 * self._scale))
+        card.pack(fill='x', pady=(0, round(12 * self._scale)))
+        ttk.Label(card, text=title, style='Section.TLabel').pack(anchor='w', pady=(0, 4))
         return card
 
     def _main_configure(self, event):
@@ -406,12 +490,17 @@ class PreviewApplication:
             import win32api, win32gui
             work=win32api.GetMonitorInfo(win32api.MonitorFromWindow(win32gui.GetAncestor(self.root.winfo_id(),2),2))['Work']
             left,top,right,bottom=work
-            width=min(round(720*self._scale),right-left-32)
-            height=min(round(620*self._scale),bottom-top-48)
-            self.root.minsize(min(width,round(640*self._scale)),min(height,round(520*self._scale)))
+            width = max(1, min(round(_MAIN_SIZE[0] * self._scale), right - left - 32))
+            height = max(1, min(round(_MAIN_SIZE[1] * self._scale), bottom - top - 48))
+            self.root.minsize(min(width, round(_MAIN_MIN_SIZE[0] * self._scale)),
+                              min(height, round(_MAIN_MIN_SIZE[1] * self._scale)))
             self.root.geometry(f'{width}x{height}+{left+16}+{top+16}')
         except Exception:
-            self.root.minsize(min(640,self.root.winfo_screenwidth()),min(520,self.root.winfo_screenheight()))
+            width = min(round(_MAIN_SIZE[0] * self._scale), self.root.winfo_screenwidth())
+            height = min(round(_MAIN_SIZE[1] * self._scale), self.root.winfo_screenheight())
+            self.root.minsize(min(width, round(_MAIN_MIN_SIZE[0] * self._scale)),
+                              min(height, round(_MAIN_MIN_SIZE[1] * self._scale)))
+            self.root.geometry(f'{width}x{height}')
 
     def _choose(self):
         """Preview the explicitly selected local file."""
@@ -500,37 +589,67 @@ class PreviewApplication:
             self.open(self.search_tree.item(selected[0], 'values')[1])
 
     def _choose_convert_files(self):
-        """Choose one or more files manually and show the conversion wheel."""
-        paths = filedialog.askopenfilenames(parent=self.root)
+        """Choose files manually without interrupting a running conversion."""
+        if self._conversion_request_blocked():
+            return
+        if self.selection_mode == 'convert':
+            self._cancel_selection()
+        self._conversion_picker_open = True
+        try:
+            paths = filedialog.askopenfilenames(parent=self.root)
+        finally:
+            self._conversion_picker_open = False
         if paths:
-            self._show_conversion_wheel(paths)
+            self._show_conversion_dialog(paths)
 
-    def _show_conversion_wheel(self, paths):
-        """Offer every reachable target format for the selected files."""
+    def _conversion_request_blocked(self) -> bool:
+        if self.closing or self._conversion_picker_open:
+            return True
+        if self._convert_thread is None:
+            return False
+        if self.convert_dialog is not None and self.convert_dialog.winfo_exists():
+            self.convert_dialog.present()
+        return True
+
+    def _show_conversion_dialog(self, paths: Sequence[str | Path]) -> None:
+        """Offer formats for a snapshot of the selected paths and quality."""
+        if self._conversion_request_blocked():
+            return
         from offlook.core import format_label, reachable_targets
-        from offlook.ui.convert_wheel import show_conversion_wheel
-        if self.convert_wheel is not None and self.convert_wheel.winfo_exists():
-            self.convert_wheel.destroy()
-        mode = self.convert_mode.get().strip() or 'auto'
-        targets = reachable_targets(paths, mode)
-        if not targets:
-            self.convert_status.set(tr('status.convert.none'))
-            self.status.set(tr('status.convert.none'))
-            return
-        options = [(extension, format_label(extension)) for extension in targets]
-        self._convert_paths = tuple(Path(path) for path in paths)
-        self._show()
-        self.convert_wheel = show_conversion_wheel(self.root, options, self._start_conversion)
+        from offlook.ui.convert_dialog import ConversionDialog
 
-    def _start_conversion(self, target):
-        """Run file conversion away from the Tk thread and report the outcome."""
-        if self._convert_thread and self._convert_thread.is_alive():
-            self.convert_status.set(tr('status.convert.busy'))
-            return
-        paths = self._convert_paths
+        sources = tuple(Path(path) for path in paths)
         mode = self.convert_mode.get().strip() or 'auto'
-        self.convert_status.set(tr('status.convert.running', n=len(paths),
-                                   target=target.lstrip(".").upper()))
+        status_key = None
+        details = ''
+        try:
+            options = tuple((target, format_label(target)) for target in reachable_targets(sources, mode))
+            if not options:
+                status_key = 'status.convert.none'
+        except OffLookError as exc:
+            options = ()
+            status_key = 'status.convert.failed'
+            details = str(exc)
+
+        if self.convert_dialog is not None and self.convert_dialog.winfo_exists():
+            self.convert_dialog.destroy()
+        dialog = ConversionDialog(self.root, options, len(sources),
+                                  lambda target: self._start_conversion(sources, target, mode))
+        self.convert_dialog = dialog
+        if status_key is not None:
+            dialog.show_result(tr_in(dialog.language_code, status_key), details, error=True)
+            self.convert_status.set(tr(status_key))
+        dialog.present()
+
+    def _start_conversion(self, paths: tuple[Path, ...], target: str, mode: str) -> None:
+        """Run file conversion away from Tk, keeping the chooser for its result."""
+        dialog = self.convert_dialog
+        if self.closing or self._convert_thread is not None or dialog is None or not dialog.winfo_exists():
+            return
+        values = {'n': len(paths), 'target': target.lstrip('.').upper()}
+        dialog.show_running(tr_in(dialog.language_code, 'status.convert.running', **values))
+        self.convert_status.set(tr('status.convert.running', **values))
+
         def work():
             try:
                 from offlook.core import convert_files
@@ -538,9 +657,28 @@ class PreviewApplication:
             except OffLookError as exc:
                 self._convert_results.put((None, str(exc)))
             except Exception as exc:
-                self._convert_results.put((None, f'Conversion failed: {type(exc).__name__}: {exc}'))
+                self._convert_results.put((None, f'{type(exc).__name__}: {exc}'))
+
         self._convert_thread = threading.Thread(target=work, name='OffLookConvert', daemon=True)
-        self._convert_thread.start()
+        try:
+            self._convert_thread.start()
+        except RuntimeError as exc:
+            self._convert_thread = None
+            self._report_conversion(None, f'{type(exc).__name__}: {exc}')
+
+    def _report_conversion(self, outcomes, error: str | None) -> None:
+        dialog = self.convert_dialog
+        if self.closing or dialog is None:
+            return
+        if error is not None:
+            key, details, values = 'status.convert.failed', error, {}
+        else:
+            outputs = [str(path.absolute()) for outcome in outcomes for path in outcome.outputs]
+            key, details = 'status.convert.done', '\n'.join(outputs)
+            values = {'n': dialog.source_count, 'm': len(outputs)}
+        if dialog.winfo_exists():
+            dialog.show_result(tr_in(dialog.language_code, key, **values), details, error=error is not None)
+        self.convert_status.set(tr(key, **values))
 
     def _convert_mode_changed(self, _event=None):
         """Persist the conversion fidelity mode when the user changes it."""
@@ -549,7 +687,7 @@ class PreviewApplication:
             self.context.config.update(desired, persist=True)
         except OffLookError as exc:
             self.convert_mode.set(self.context.config.current.convert_mode)
-            self.status.set(str(exc))
+            self.convert_status.set(str(exc))
 
     def _choose_filter_folder(self):
         """Choose the root folder for format filtering."""
@@ -560,36 +698,54 @@ class PreviewApplication:
 
     def _apply_filter(self):
         """Run multi-format filtering off the Tk thread."""
-        if self._filter_thread and self._filter_thread.is_alive():
+        if self.closing or self._filter_thread is not None:
             return
         folder = self.filter_folder.get().strip()
         if not folder:
             self.filter_status.set(tr('status.search.no_folder'))
             return
-        kinds = [kind for kind, variable in self.filter_vars.items() if variable.get()]
-        from offlook.core import filter_files
+        kinds = tuple(kind for kind, variable in self.filter_vars.items() if variable.get())
         self.filter_button.state(['disabled'])
         self.filter_status.set(tr('status.filter.running'))
-        self._filter_thread = threading.Thread(
-            target=self._filter_worker, args=(folder, kinds, filter_files),
-            name='OffLookFilter', daemon=True,
-        )
-        self._filter_thread.start()
-
-    def _filter_worker(self, folder, kinds, filterer):
-        """Return filter results without touching Tk from the worker thread."""
         try:
-            self._filter_results.put((filterer(folder, kinds=kinds), None))
-        except OffLookError as exc:
-            self._filter_results.put((None, str(exc)))
-        except OSError as exc:
-            self._filter_results.put((None, f'File filtering failed: {exc}'))
+            self._filter_thread = start_filter_scan(folder, kinds, self._filter_results)
+        except RuntimeError as exc:
+            self.filter_button.state(['!disabled'])
+            self.filter_status.set(f'File filtering failed: {type(exc).__name__}: {exc}')
 
     def _open_filter_result(self, _event):
         """Preview the selected filtered file."""
         selected = self.filter_tree.selection()
         if selected:
             self.open(self.filter_tree.item(selected[0], 'values')[1])
+
+    def open_filter(self, folder: str | Path, *, kinds: Sequence[FileKind] = ()) -> None:
+        """Show the standalone filter for an already validated directory."""
+        if self.closing:
+            return
+        path = Path(folder)
+        dialog = self.filter_dialog
+        if dialog is not None:
+            if dialog.busy or dialog.folder == path:
+                dialog.present()
+                return
+            dialog.destroy()
+        self.filter_dialog = FilterDialog(self.root, path, kinds=kinds, on_open=self.open,
+                                          on_close=self._close_filter_dialog)
+        self.filter_dialog.present()
+
+    def _close_filter_dialog(self) -> None:
+        dialog = self.filter_dialog
+        if dialog is None:
+            return
+        if not self.resident:
+            self.exit_code = 0
+            self.shutdown()
+        elif dialog.busy:
+            dialog.withdraw()
+        else:
+            dialog.destroy()
+            self.filter_dialog = None
 
     def _save_ai(self):
         """Persist AI settings only when they validate."""
@@ -676,7 +832,7 @@ class PreviewApplication:
                 replace(self.context.config.current, language=chosen), persist=True)
         except OffLookError as exc:
             self.status.set(str(exc))
-        self._rebuild_ui()
+        self._rebuild_ui(previous)
 
     def _retranslate_defaults(self, previous):
         """Re-render status lines that still show their original prompt.
@@ -696,28 +852,27 @@ class PreviewApplication:
             if variable.get() in (tr_in(previous, key), tr(key)):
                 variable.set(tr(key))
 
-    def _rebuild_ui(self):
-        """Recreate every main-window control in the active language.
-
-        Values live in instance StringVars, so folders, settings, drafts and status
-        lines survive the rebuild; cached result rows refill the tables afterwards.
-        """
-        self._cancel_recording()
-        if self.convert_wheel is not None and self.convert_wheel.winfo_exists():
-            self.convert_wheel.destroy()
-        self.convert_wheel = None
+    def _rebuild_ui(self, previous: str) -> None:
+        """Retranslate the window controls without losing page or task state."""
+        if self._recording:
+            self._cancel_recording()
+            self.shortcut_feedback.set('')
         if self.help_window is not None and self.help_window.winfo_exists():
             self.help_window.destroy()
         self.help_window = None
-        search_index = self.search_kind_box.current() if hasattr(self, 'search_kind_box') else 0
-        for child in self.root.winfo_children():
-            child.destroy()
+        search_index = max(0, self.search_kind_box.current())
+        transcript = self.ai_output.get('1.0', 'end-1c')
+        worker_buttons = ('search_button', 'filter_button', 'ai_run_button', 'path_button')
+        disabled = [name for name in worker_buttons if getattr(self, name).instate(['disabled'])]
+        self._main_shell.destroy()
         self._build_main()
         self._apply_saved_toggles()
-        self.search_kind_box.current(max(0, search_index))
-        self.search_kind.set(search_kind_values()[max(0, search_index)])
+        self.search_kind_box.current(search_index)
         self._refresh_hotkey_status()
-        self._repopulate_results()
+        self._repopulate_results(previous)
+        self._set_ai_output(transcript)
+        for name in disabled:
+            getattr(self, name).state(['disabled'])
 
     def _apply_saved_toggles(self):
         """Re-apply control states the rebuilt widgets cannot infer on their own."""
@@ -730,26 +885,15 @@ class PreviewApplication:
             except OffLookError:
                 pass
 
-    def _repopulate_results(self):
-        """Refill the result tables from the cached rows after a rebuild."""
-        if self._search_error:
-            self.search_status.set(self._search_error)
-        elif self._search_cache:
-            self._fill_results(self.search_tree, self._search_cache)
-            self.search_status.set(tr('status.search.found', n=len(self._search_cache)))
-        if self._filter_error:
-            self.filter_status.set(self._filter_error)
-        elif self._filter_cache:
-            self._fill_results(self.filter_tree, self._filter_cache)
-            self.filter_status.set(tr('status.filter.found', n=len(self._filter_cache)))
-
-    @staticmethod
-    def _fill_results(tree, rows):
-        """Replace a result table's rows, keeping the stored order."""
-        for item in tree.get_children():
-            tree.delete(item)
-        for row in rows:
-            tree.insert('', 'end', values=(kind_label(row.kind), str(row.path)))
+    def _repopulate_results(self, previous: str) -> None:
+        """Relabel cached rows and completed counts without replacing live feedback."""
+        for tree, rows, status, key in (
+            (self.search_tree, self._search_cache, self.search_status, 'status.search.found'),
+            (self.filter_tree, self._filter_cache, self.filter_status, 'status.filter.found'),
+        ):
+            fill_results(tree, rows)
+            if status.get() == tr_in(previous, key, n=len(rows)):
+                status.set(tr(key, n=len(rows)))
 
     def _help_key(self,event):
         """Do not steal a key while shortcut recording is active."""
@@ -824,6 +968,7 @@ class PreviewApplication:
             if 0 <= index < len(actions):
                 self._selected_action = actions[index]
         self.combo.set(self._drafts[self._selected_action])
+        self.shortcut_active_label.configure(textvariable=self.shortcut_statuses[self._selected_action])
 
     def _reset_hotkey(self):
         self._cancel_recording()
@@ -896,7 +1041,7 @@ class PreviewApplication:
         self._observed_config = self.context.config.current
 
     def _apply_hotkey(self):
-        """Validate all four bindings before registration or persistence."""
+        """Validate saved bindings before registration or persistence."""
         self._cancel_recording()
         action = self._selected_action
         field, label_key = self.SHORTCUT_ACTIONS[action]
@@ -1202,7 +1347,7 @@ class PreviewApplication:
         preview_hwnd = (win32gui.GetAncestor(self.preview.window.winfo_id(), 2)
                         if self.preview is not None else None)
         owned = {main_hwnd, preview_hwnd}
-        for window in (self.help_window, self.diff_window):
+        for window in (self.help_window, self.diff_window, self.convert_dialog, self.filter_dialog):
             if window is not None and window.winfo_exists():
                 owned.add(win32gui.GetAncestor(window.winfo_id(), 2))
         if hwnd in owned:
@@ -1210,7 +1355,7 @@ class PreviewApplication:
                 self._hotkey(hwnd)
             return
         {'preview': self._hotkey, 'search': self._search_hotkey,
-         'diff': self._diff_hotkey, 'convert': self._convert_hotkey}[action](hwnd)
+         'diff': self._diff_hotkey, 'convert': self._convert_hotkey, 'filter': self._filter_hotkey}[action](hwnd)
 
     def _hotkey(self, hwnd):
         """Toggle this preview or resolve a foreground Shell file."""
@@ -1223,6 +1368,15 @@ class PreviewApplication:
     def _search_hotkey(self, hwnd):
         """Prepare the selected Explorer folder without starting a search."""
         self._begin_selection('search', hwnd)
+
+    def _filter_hotkey(self, hwnd: int) -> None:
+        if self.closing:
+            return
+        dialog = self.filter_dialog
+        if dialog is not None and dialog.busy:
+            dialog.present()
+        else:
+            self._begin_selection('filter', hwnd)
 
     def _diff_hotkey(self, hwnd):
         """Resolve two files from the foreground Shell view."""
@@ -1239,7 +1393,7 @@ class PreviewApplication:
         self.generation += 1
         self.selection_hwnd, self.selection_mode = hwnd, action
         self.runner.submit(SelectionRequest(self.generation, hwnd, self.context.config.current,
-                                            allow_folder=action == 'search',
+                                            allow_folder=action in ('search', 'filter'),
                                             multiple=action in ('convert', 'diff'),
                                             strict_pair=action == 'diff'))
 
@@ -1253,11 +1407,17 @@ class PreviewApplication:
 
     def _selection_feedback(self, action, message):
         label = tr(self.SHORTCUT_ACTIONS[action][1])
+        if action == 'filter':
+            message = message or tr('status.selection.no_folder')
         text = tr('status.hotkey.label', label=label, message=message)
         if action == 'search':
             self.search_status.set(text)
         elif action == 'diff':
             self.diff_status.set(text)
+        elif action == 'convert':
+            self.convert_status.set(text)
+        elif action == 'filter':
+            self.filter_shortcut_feedback.set(text)
         else:
             self.status.set(text)
 
@@ -1274,7 +1434,7 @@ class PreviewApplication:
                 self._selection_feedback(action, tr('status.selection.focus_changed'))
             elif action == 'convert':
                 if result['data'].paths:
-                    self._show_conversion_wheel(result['data'].paths)
+                    self._show_conversion_dialog(result['data'].paths)
                 else:
                     self._selection_feedback(
                         action, result['data'].reason or tr('status.selection.no_files'))
@@ -1290,30 +1450,27 @@ class PreviewApplication:
             elif action == 'search':
                 self.search_folder.set(str(result['data'].path))
                 self.search_status.set(tr('status.search.explorer'))
+                self._select_main_page('search')
                 self._show()
                 self.root.after_idle(self._focus_search)
+            elif action == 'filter':
+                self.filter_shortcut_feedback.set('')
+                self.open_filter(result['data'].path)
             else:
                 self.open(result['data'].path)
         finally:
             if self.preview is not None and self.preview is previous_preview:
                 self.preview.set_render_suspended(False)
 
-    def _scroll_into_view(self, widget: tk.Misc) -> None:
-        """Bring the card's leading controls into the existing narrow scroll area."""
-        self.main_canvas.update_idletasks()
-        height = max(1, self.main_content.winfo_height())
-        top = widget.winfo_rooty() - self.main_content.winfo_rooty()
-        self.main_canvas.yview_moveto(max(0, top) / height)
-
     def _focus_search(self):
-        if not self.closing:
-            self._scroll_into_view(self.search_card)
+        if not self.closing and self._main_page == 'search':
             self.search_entry.focus_set()
             self.search_entry.selection_range(0, 'end')
 
     def _convert_hotkey(self, hwnd):
-        """Collect every selected Explorer file for the conversion wheel."""
-        self._begin_selection('convert', hwnd)
+        """Collect every selected Explorer file for the conversion dialog."""
+        if not self._conversion_request_blocked():
+            self._begin_selection('convert', hwnd)
 
     def _poll(self):
         """Consume native events and worker results only on the owning Tk thread."""
@@ -1346,9 +1503,8 @@ class PreviewApplication:
         else:
             if not self.closing:
                 self.search_button.state(['!disabled'])
-                self._search_error = search_error or ''
                 self._search_cache = tuple(search_results or ())
-                self._fill_results(self.search_tree, self._search_cache)
+                fill_results(self.search_tree, self._search_cache)
                 if search_error:
                     self.search_status.set(search_error)
                 else:
@@ -1372,32 +1528,31 @@ class PreviewApplication:
                     tr('status.diff.differences') if comparison.changed else tr('status.diff.same')
                 )
                 self.status.set(tr('status.diff.ready'))
-        try:
+        if self._filter_thread is not None and not self._filter_thread.is_alive():
+            self._filter_thread = None
             filter_results, filter_error = self._filter_results.get_nowait()
-        except queue.Empty:
-            pass
-        else:
-            self.filter_button.state(['!disabled'])
-            self._filter_error = filter_error or ''
-            self._filter_cache = tuple(filter_results or ())
-            self._fill_results(self.filter_tree, self._filter_cache)
-            if filter_error:
-                self.filter_status.set(filter_error)
+            if not self.closing:
+                self.filter_button.state(['!disabled'])
+                self._filter_cache = tuple(filter_results or ())
+                fill_results(self.filter_tree, self._filter_cache)
+                if filter_error is not None:
+                    self.filter_status.set(filter_error)
+                else:
+                    self.filter_status.set(tr('status.filter.found', n=len(self._filter_cache)))
+        dialog = self.filter_dialog
+        if not self.closing and dialog is not None:
+            dialog.poll()
+            if not dialog.busy and dialog.state() == 'withdrawn':
+                dialog.destroy()
+                self.filter_dialog = None
+        if self._convert_thread is not None and not self._convert_thread.is_alive():
+            self._convert_thread = None
+            try:
+                conversion, convert_error = self._convert_results.get_nowait()
+            except queue.Empty:
+                pass
             else:
-                self.filter_status.set(tr('status.filter.found', n=len(self._filter_cache)))
-        try:
-            conversion, convert_error = self._convert_results.get_nowait()
-        except queue.Empty:
-            pass
-        else:
-            if convert_error:
-                self.convert_status.set(convert_error)
-                self.status.set(convert_error)
-            else:
-                outputs = sum(len(outcome.outputs) for outcome in conversion)
-                message = tr('status.convert.done', n=len(conversion), m=outputs)
-                self.convert_status.set(message)
-                self.status.set(message)
+                self._report_conversion(conversion, convert_error)
         try:
             ai_result, ai_error = self._ai_results.get_nowait()
         except queue.Empty:
@@ -1453,7 +1608,7 @@ class PreviewApplication:
         self.preview.destroy()
         self.preview = None
         self.context.events.publish('preview.closed', {'path': self.path})
-        if not self.resident and exiting:
+        if not self.resident and exiting and self.filter_dialog is None:
             self.shutdown()
 
     def shutdown(self):
@@ -1468,7 +1623,11 @@ class PreviewApplication:
         self._stop_hotkeys()
         self._refresh_hotkey_status()
         if self.tray: self.tray.stop()
-        if self.convert_wheel and self.convert_wheel.winfo_exists(): self.convert_wheel.destroy()
+        if self.filter_dialog is not None:
+            self.filter_dialog.destroy()
+            self.filter_dialog = None
+        if self.convert_dialog is not None and self.convert_dialog.winfo_exists():
+            self.convert_dialog.destroy()
         if self.help_window and self.help_window.winfo_exists(): self.help_window.destroy()
         if self.diff_window and self.diff_window.winfo_exists(): self.diff_window.destroy()
 

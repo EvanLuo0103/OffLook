@@ -12,6 +12,9 @@ from .events import EventBus
 from .files import DEFAULT_SUPPORTED_EXTENSIONS
 from .hotkeys import parse_hotkey
 
+_LEGACY_SHORTCUT_FIELDS = ('hotkey', 'search_hotkey', 'diff_hotkey', 'convert_hotkey')
+_FILTER_SHORTCUTS = ('Ctrl+Alt+F', 'Ctrl+Alt+Shift+F', 'Ctrl+Alt+G', 'Ctrl+Alt+Shift+G', 'Ctrl+Alt+J')
+
 
 @dataclass(frozen=True)
 class PreviewConfig:
@@ -37,6 +40,7 @@ class PreviewConfig:
     ai_api_key: str = ""
     ai_model: str = "deepseek-chat"
     language: str = "en"
+    filter_hotkey: str = _FILTER_SHORTCUTS[0]
 
     def __post_init__(self) -> None:
         """Validate exact setting types and normalize suffixes without accepting glob patterns."""
@@ -44,7 +48,7 @@ class PreviewConfig:
             raise ConfigError("max_file_size_bytes must be a positive integer (bytes)")
         if type(self.hotkey_enabled) is not bool or type(self.always_on_top) is not bool or type(self.ai_enabled) is not bool:
             raise ConfigError("hotkey_enabled, always_on_top, and ai_enabled must be booleans")
-        shortcut_names = ("hotkey", "search_hotkey", "diff_hotkey", "convert_hotkey")
+        shortcut_names = (*_LEGACY_SHORTCUT_FIELDS, 'filter_hotkey')
         for name in shortcut_names:
             try:
                 canonical = parse_hotkey(getattr(self, name)).canonical
@@ -170,6 +174,15 @@ class ConfigManager:
             if not isinstance(suffixes, list):
                 raise ConfigError("supported_extensions must be a JSON array")
             values["supported_extensions"] = tuple(suffixes)
+        if 'filter_hotkey' not in values:
+            # Do not let the new default displace a shortcut saved by an older version.
+            try:
+                occupied = {parse_hotkey(values.get(name, getattr(PreviewConfig, name))).canonical
+                            for name in _LEGACY_SHORTCUT_FIELDS}
+            except HotkeyError:
+                pass  # PreviewConfig reports the invalid field with its normal validation order.
+            else:
+                values['filter_hotkey'] = next(combo for combo in _FILTER_SHORTCUTS if combo not in occupied)
         config = PreviewConfig(**values)
         self.update(config)
         return config
