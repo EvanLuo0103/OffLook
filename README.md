@@ -10,7 +10,7 @@ OffLook is an open-source Windows tool for inspecting and working with local fil
 
 Use shortcuts and small windows for one-off tasks, or use the `ol` command in PowerShell when you want to repeat a task or pipe results into another command. Preview, search, and comparison run locally without uploading files. The optional AI assistant only contacts the service you configure when you click **Run with AI**; its file tools are read-only by default.
 
-![OffLook main window (English)](https://raw.githubusercontent.com/EvanLuo0103/OffLook/main/docs/images/main-window-en.png)
+![OffLook main window (English)](docs/images/main-window-en.png)
 
 Use **中文 / English** to switch the interface language.
 
