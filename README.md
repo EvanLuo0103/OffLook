@@ -22,7 +22,7 @@ Use **中文 / English** to switch the interface language.
 
 **Without Python:** Download the Windows x64 installer from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Start OffLook from the Start menu. Adding `ol` to your user PATH is optional.
 
-**With Python:** On Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher, use the following commands once the [PyPI package](https://pypi.org/project/offlook/) is published:
+**With Python:** Once [OffLook is published on PyPI](https://pypi.org/project/offlook/), install it on Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher:
 
 ```powershell
 py -m pip install --user offlook

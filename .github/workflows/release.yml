@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the selected release tag to TestPyPI, then PyPI
+        description: Upload the selected release tag to TestPyPI, then PyPI (production approval must be configured)
         type: boolean
         default: false
 permissions:
@@ -32,6 +32,7 @@ jobs:
           $version = python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           if ($env:PUBLISH -eq 'true') {
+            if ($env:GITHUB_REPOSITORY -ne 'EvanLuo0103/OffLook') { throw 'Publishing is restricted to the upstream repository.' }
             if ($env:GITHUB_REF -ne "refs/tags/v$version") { throw 'Select the tag matching pyproject.toml.' }
             git merge-base --is-ancestor HEAD origin/main
             if ($LASTEXITCODE) { throw 'Release commit is not in the main branch history.' }
@@ -51,11 +52,11 @@ jobs:
           name: python-dist
           path: ${{ runner.temp }}/python-dist/*
           if-no-files-found: error
-      - run: |
-          $wheel = Join-Path $env:RUNNER_TEMP "python-dist/offlook-${{ steps.version.outputs.version }}-py3-none-any.whl"
+      - env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $wheel = Join-Path $env:RUNNER_TEMP "python-dist/offlook-$env:VERSION-py3-none-any.whl"
           python -m pip install --only-binary=:all: "$wheel[office]" PyInstaller==6.16.0
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python -m unittest qa.test_conversion_preflight qa.test_ai_safety qa.test_credentials
       - name: Build and smoke-test the Windows installer
         run: |
           $setup = Join-Path $env:RUNNER_TEMP inno-setup.exe
@@ -71,12 +72,13 @@ jobs:
           path: ${{ runner.temp }}/offlook-build/release/*
           if-no-files-found: error
 
-  verify-wheel:
+  verify-dist:
     needs: build
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
-        python: ['3.11', '3.15']
+        python: ['3.11', '3.12', '3.13', '3.14', '3.15']
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,11 +104,31 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $python -m pip check
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $aliasVersion = & (Join-Path $venv 'Scripts/offlook.exe') --version
+          if ($LASTEXITCODE -or $aliasVersion -ne $env:VERSION) { throw 'The offlook console entry point did not report the expected version.' }
+          & $python -m qa.windows_smoke --cli (Join-Path $venv 'Scripts/ol.exe')
+      - name: Install and verify the source distribution with office extras
+        if: matrix.python == '3.13'
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          $env:PYTHONPATH = ''
+          $venv = Join-Path $env:RUNNER_TEMP offlook-sdist-verification
+          python -m venv $venv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $python = Join-Path $venv 'Scripts/python.exe'
+          $sdist = Join-Path $env:RUNNER_TEMP "python-dist/offlook-$env:VERSION.tar.gz"
+          & $python -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: "$sdist[office]"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m pip check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m unittest discover -s qa
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $python -m qa.windows_smoke --cli (Join-Path $venv 'Scripts/ol.exe')
 
   testpypi:
     if: inputs.publish && github.repository == 'EvanLuo0103/OffLook'
-    needs: [build, verify-wheel]
+    needs: [build, verify-dist]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -157,6 +179,8 @@ jobs:
           $python = Join-Path $venv 'Scripts/python.exe'
           & $python -m pip --isolated install --index-url https://pypi.org/simple --only-binary=:all: $wheel
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & $python -m pip check
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & $python -m qa.windows_smoke --cli (Join-Path $venv 'Scripts/ol.exe')
 
   pypi:
@@ -191,6 +215,7 @@ jobs:
       - run: |
           python -m pip install packaging
           python -m qa.release_artifacts "$RUNNER_TEMP/python-dist" --index pypi.org
+        shell: bash
 
   github-release:
     needs: [build, verify-pypi]
@@ -207,6 +232,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.build.outputs.version }}
           TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
           name="OffLook-$VERSION-windows-x64-setup.exe"
           (cd installer && sha256sum --check "$name.sha256")

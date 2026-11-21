@@ -50,6 +50,10 @@ def inspect_distribution(directory: Path) -> None:
                 SpecifierSet(metadata['Requires-Python']) == SpecifierSet(PROJECT['requires-python']) and
                 metadata['License-Expression'] == 'MIT',
                 'Incorrect package identity, Python requirement or license')
+        require(metadata['Description-Content-Type'] == 'text/markdown' and
+                metadata.get_payload(decode=True).decode('utf-8').splitlines() ==
+                (ROOT / PROJECT['readme']).read_text(encoding='utf-8').splitlines(),
+                'Wheel does not contain the expected PyPI Markdown description')
         require('office' in metadata.get_all('Provides-Extra', []), 'Wheel is missing the office extra')
         found = {Requirement(req) for req in metadata.get_all('Requires-Dist', [])}
         base = {Requirement(req) for req in (ROOT / 'requirements.txt').read_text().splitlines()
@@ -69,7 +73,8 @@ def inspect_distribution(directory: Path) -> None:
         require(dict(entries['console_scripts']) == PROJECT['scripts'], 'Console entry points do not match pyproject')
     with tarfile.open(directory / SDIST, 'r:gz') as source:
         members = {entry.name.partition('/')[2] for entry in source.getmembers()}
-        require({'requirements.txt', 'README.md', 'README.zh-TW.md', 'LICENSE'} <= members,
+        require({'pyproject.toml', 'requirements.txt', PROJECT['readme'], 'README.md', 'README.zh-TW.md',
+                 'LICENSE', 'docs/getting-started.md', 'docs/api.md'} <= members,
                 'Source distribution is missing build inputs or documentation')
         require(not any(n.startswith(('qa/', 'tests/', '.github/', 'packaging/', 'dist/')) or
                         n.lower().endswith(('.exe', '.tmp', '/config.json')) for n in members),

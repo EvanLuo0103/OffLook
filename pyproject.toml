@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "offlook"
-version = "0.4.2"
+version = "0.4.3"
 description = "Offline Windows file previews with GUI and CLI interfaces"
-readme = "README.md"
+readme = "README.pypi.md"
 requires-python = ">=3.11,<3.16"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -29,6 +29,7 @@ office = ["openpyxl==3.1.5", "python-pptx==1.0.2", "docx2pdf==0.1.8; sys_platfor
 Homepage = "https://github.com/EvanLuo0103/OffLook"
 Documentation = "https://github.com/EvanLuo0103/OffLook/blob/main/docs/getting-started.md"
 Issues = "https://github.com/EvanLuo0103/OffLook/issues"
+Changelog = "https://github.com/EvanLuo0103/OffLook/releases"
 
 [project.scripts]
 offlook = "offlook.cli:main"

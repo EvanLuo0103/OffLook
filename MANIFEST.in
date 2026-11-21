@@ -1,6 +1,7 @@
-include requirements.txt README.md README.zh-TW.md LICENSE
+include requirements.txt README.md README.pypi.md README.zh-TW.md LICENSE
 recursive-include docs *.md
 recursive-include docs/images *.png
+exclude docs/releasing.md
 prune .github
 prune packaging
 prune qa
