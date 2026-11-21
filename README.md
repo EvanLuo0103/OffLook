@@ -2,15 +2,21 @@
 
 **English** | [繁體中文](https://github.com/EvanLuo0103/OffLook/blob/main/README.zh-TW.md)
 
-An offline file previewer for Windows with GUI and CLI interfaces. Previews and file comparisons run locally without a network connection. The optional AI file assistant contacts the service you configure only when you run it.
+OffLook is an open-source Windows tool for inspecting and working with local files without leaving File Explorer. If you just need to check a report, opening a PDF reader or editor for every candidate slows you down. With OffLook running in the system tray, select a file and press **Ctrl+Space** to take a look, then press **Esc** to return to browsing.
 
-![OffLook main window (English)](docs/images/main-window-en.png)
+- **Find the right file.** Narrow a folder and its subfolders by part of a filename and one or more file types, then open a preview from the results. Read supported PDFs, images, Markdown, text, code, and CSV without opening a separate viewer for each format.
+- **See what changed.** Compare two text or Word (`.docx`) files side by side, including Word against plain text. OffLook highlights text changes without requiring Git or Microsoft Word.
+- **Prepare files for sharing.** Combine selected images into one PDF or convert Markdown to PDF. The conversion dialog tells you when a format needs an additional backend before you start.
+
+Use shortcuts and small windows for one-off tasks, or use the `ol` command in PowerShell when you want to repeat a task or pipe results into another command. Preview, search, and comparison run locally without uploading files. The optional AI assistant only contacts the service you configure when you click **Run with AI**; its file tools are read-only by default.
+
+![OffLook main window (English)](https://raw.githubusercontent.com/EvanLuo0103/OffLook/main/docs/images/main-window-en.png)
 
 Use **中文 / English** to switch the interface language.
 
 ## Install and launch
 
-**Without Python:** When available, download the Windows x64 installer from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Start OffLook from the Start menu. Adding `ol` to your user PATH is optional.
+**Without Python:** Download the Windows x64 installer from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Start OffLook from the Start menu. Adding `ol` to your user PATH is optional.
 
 **With Python:** On Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher, use the following commands once the [PyPI package](https://pypi.org/project/offlook/) is published:
 
@@ -19,7 +25,7 @@ py -m pip install --user offlook
 py -m offlook
 ```
 
-Use `offlook[office]` for optional Python conversion backends. Microsoft Word and LibreOffice are separate installs. For installation from this repository before the first release, see the [user guide](https://github.com/EvanLuo0103/OffLook/blob/main/docs/getting-started.md#1-download-and-install).
+Use `offlook[office]` for optional Python conversion backends. Microsoft Word and LibreOffice are separate installs. For another way to get started, see [how to install from source](https://github.com/EvanLuo0103/OffLook/blob/main/docs/getting-started.md#1-download-and-install).
 
 ## Quick tour
 

@@ -2,7 +2,13 @@
 
 [English](README.md) | **繁體中文**
 
-OffLook 是 Windows 的離線檔案預覽工具，提供圖形介面及命令列。預覽和檔案比較在本機執行；選用的 AI 檔案助手只會在你執行指令時連線到已設定的服務。
+OffLook 是一款開放原始碼的 Windows 工具，讓你在檔案總管就能快速查看和處理本機檔案。只是想確認哪一份才是要找的報告，卻得把候選檔案一個個用 PDF 閱讀器或編輯器打開？讓 OffLook 在系統匣執行，選取檔案後按 **Ctrl+Space** 預覽，再按 **Esc** 回到檔案總管繼續瀏覽。
+
+- **找出你要的檔案。** 用部分檔名和一種或多種檔案類型篩選資料夾及其子資料夾，從結果直接預覽 PDF、圖片、Markdown、純文字、程式碼和 CSV，不必為每種格式切換程式。
+- **看清兩個版本改了什麼。** 並排比較純文字或 Word（`.docx`）檔案，也能拿 Word 和純文字互比。OffLook 會標出文字差異，不需要 Git 或 Microsoft Word。
+- **把檔案轉成方便分享的格式。** 將多張圖片合併成一份 PDF，或把 Markdown 轉成 PDF。若目標格式需要另外安裝轉換工具，視窗會在開始轉換前提示。
+
+臨時操作可用快捷鍵叫出小視窗；需要重複執行或把結果傳給其他指令時，可以在 PowerShell 使用 `ol`。預覽、搜尋與比較都在本機執行，不會上傳檔案。選用的 AI 檔案助手只會在你按下「用 AI 執行」時連線到已設定的服務，檔案操作預設為唯讀。
 
 ![OffLook 主視窗（繁體中文）](docs/images/main-window-zh.png)
 
@@ -10,7 +16,7 @@ OffLook 是 Windows 的離線檔案預覽工具，提供圖形介面及命令列
 
 ## 安裝與啟動
 
-**不安裝 Python：** Windows x64 安裝程式發布後可從 [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases) 下載。安裝後從開始功能表開啟；可選擇將 `ol` 加入目前使用者的 PATH。
+**不安裝 Python：** 從 [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases) 下載 Windows x64 安裝程式。安裝後從開始功能表開啟；可選擇將 `ol` 加入目前使用者的 PATH。
 
 **已有 Python：** [PyPI 套件](https://pypi.org/project/offlook/) 發布後，使用 Windows 版 64 位元 Python 3.11–3.15（含 Tcl/Tk 與 Python Launcher）執行：
 
@@ -19,7 +25,7 @@ py -m pip install --user offlook
 py -m offlook
 ```
 
-需要選用的 Python 轉換套件時，可安裝 `offlook[office]`。Microsoft Word 與 LibreOffice 仍需另外安裝。首發前可依[使用指南](docs/getting-started.md#1-download-and-install)從原始碼安裝。
+需要選用的 Python 轉換套件時，可安裝 `offlook[office]`。Microsoft Word 與 LibreOffice 仍需另外安裝。也可以依[使用指南](docs/getting-started.md#1-download-and-install)從原始碼安裝。
 
 ## 預設快捷鍵
 
