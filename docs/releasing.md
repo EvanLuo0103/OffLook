@@ -4,6 +4,8 @@
 into `main`, tagged `v<version>`. Never move an existing release tag or reuse a
 version to publish different files.
 
+OffLook's first public release is `v0.4.3`. Once a tagged run has published to TestPyPI, keep the tag and approve production in that same run after verification; do not rebuild the release to pick up documentation changes on `main`.
+
 ## First release: account and repository setup
 
 - Check the [PyPI project](https://pypi.org/project/offlook/) and the [TestPyPI

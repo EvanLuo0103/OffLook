@@ -2,6 +2,8 @@
 
 ## 1. Download and install
 
+OffLook's first public release is `v0.4.3`. To try OffLook before the installer or PyPI package is available, install from a source checkout.
+
 - **Windows installer:** When available, download `OffLook-<version>-windows-x64-setup.exe` from [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases). Python and administrator permissions are not required. Launch OffLook from the Start menu. Select **Create a desktop shortcut** during setup if you also want a desktop icon; it is unchecked by default on a fresh install. The installer is unsigned.
 - **PyPI, after the first release:** On Windows with 64-bit Python 3.11–3.15, Tcl/Tk, and the Python Launcher, run `py -m pip install --user offlook`, then `py -m offlook`. Use `offlook[office]` for the optional Python conversion libraries.
 - **Source checkout:** On GitHub, click **Code → Download ZIP**, extract it, and open PowerShell in the folder containing `pyproject.toml`. Run:

@@ -20,7 +20,9 @@ OffLook 是一款開放原始碼的 Windows 工具，讓你在檔案總管就能
 
 ## 安裝與啟動
 
-**不安裝 Python：** 從 [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases) 下載 Windows x64 安裝程式。安裝後從開始功能表開啟；可選擇將 `ol` 加入目前使用者的 PATH。
+OffLook 的首個正式公開版本是 **`v0.4.3`**。
+
+**不安裝 Python：** 版本發布後，從 [GitHub Releases](https://github.com/EvanLuo0103/OffLook/releases) 下載 Windows x64 安裝程式。安裝後從開始功能表開啟；可選擇將 `ol` 加入目前使用者的 PATH。
 
 **已有 Python：** [OffLook 發布到 PyPI](https://pypi.org/project/offlook/) 後，可使用 Windows 版 64 位元 Python 3.11–3.15（含 Tcl/Tk 與 Python Launcher）安裝：
 
