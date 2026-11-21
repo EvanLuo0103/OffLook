@@ -8,7 +8,11 @@ OffLook is an open-source Windows tool for inspecting and working with local fil
 - **See what changed.** Compare two text or Word (`.docx`) files side by side, including Word against plain text. OffLook highlights text changes without requiring Git or Microsoft Word.
 - **Prepare files for sharing.** Combine selected images into one PDF or convert Markdown to PDF. The conversion dialog tells you when a format needs an additional backend before you start.
 
-Use shortcuts and small windows for one-off tasks, or use the `ol` command in PowerShell when you want to repeat a task or pipe results into another command. Preview, search, and comparison run locally without uploading files. The optional AI assistant only contacts the service you configure when you click **Run with AI**; its file tools are read-only by default.
+**Handle everyday file work from PowerShell.** Finding, checking, and preparing files often means jumping between the terminal, File Explorer, and several apps. OffLook lets you start each step from the same prompt. Use `ol filter` like a recursive `ls` with filename and type filters, then use `ol preview` to check a match without opening the main window. Compare the text of two Word drafts without saving them as plain text first, or combine a batch of scanned images into a single PDF without opening a separate converter.
+
+When you need to do the same job again, pipe matching paths into another command, check a comparison by its exit code, or script copying, moving, and sorting files by type. Open a preview window only when you need to inspect a file yourself.
+
+Preview, search, and comparison run locally without uploading files. The optional AI assistant only contacts the service you configure when you click **Run with AI**; its file tools are read-only by default.
 
 ![OffLook main window (English)](docs/images/main-window-en.png)
 
